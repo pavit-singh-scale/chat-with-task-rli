@@ -1,8 +1,9 @@
 import { api, apiSSE, renderMarkdown, el, mount, fmtTime, cap, startTour, avatar, personName } from './common.js';
+import { createRli } from './rli.js';
 
 const pathRelative = location.pathname.slice((window.__base__ || '').length);
 const [, , bucket, taskId] = pathRelative.split('/');
-const SEV_LABEL = { HARD_FAIL: 'Hard', SOFT_FAIL: 'Soft', PASS: 'Pass', UNSORTED: 'Unsorted' };
+const SEV_LABEL = { HARD_FAIL: 'Fail', SOFT_FAIL: 'Non-fail', PASS: 'No issues', UNSORTED: 'Unsorted' };
 document.getElementById('task-id').textContent = taskId;
 const sevChip = document.getElementById('sev-chip');
 const SEV_TAG = { HARD_FAIL: 'tag--hard', SOFT_FAIL: 'tag--soft', PASS: 'tag--pass', UNSORTED: '' };
@@ -57,7 +58,7 @@ function saveCurrentScroll() {
 // badly wrong for the tabular / side-by-side views — the QC spec's two-column
 // card grid, CB responses, trajectories and the pipeline tables were all being
 // squeezed into it while half the pane sat empty.
-const WIDE_VIEWS = /^(qcspec|cb|pipeline|sbs|file|rankproof)/;
+const WIDE_VIEWS = /^(qcspec|cb|pipeline|sbs|file|rankproof|rli)/;
 function setDocWidth(key) {
   document.getElementById('viewer-body').classList.toggle('doc__inner--wide', WIDE_VIEWS.test(key || ''));
 }
@@ -166,6 +167,46 @@ const TABS = [
   { key: 'pipeline',     label: 'Pipeline',     open: () => showPipeline() },
 ];
 
+// ---------- RLI queue: tasks carrying a task.json get their own tab set ----------
+const rli = createRli({
+  bucket, taskId,
+  onCrit: (n) => showRliView('rubric').then(() => rli.flashCrit(n)),
+  onSpec: (key) => showQcSpec(key),
+});
+const RLI_TABS = [
+  { key: 'brief',        label: 'Brief',        open: () => showRliView('brief') },
+  { key: 'deliverables', label: 'Deliverables', open: () => showRliView('deliverables') },
+  { key: 'rubric',       label: 'Rubric',       open: () => showRliView('rubric') },
+  { key: 'preference',   label: 'Preference',   open: () => showRliView('preference') },
+  { key: 'checks',       label: 'Checks',       open: () => showRliView('checks') },
+  { key: 'review',       label: 'Review',       open: () => openDoc(DOCS.find((d) => d.key === 'review')) },
+  { key: 'remediation',  label: 'Remediation',  open: () => openDoc(DOCS.find((d) => d.key === 'remediation')) },
+  { key: 'qcspec',       label: 'QC spec',      open: () => showQcSpec() },
+];
+const RLI_LABEL = { brief: 'Brief', deliverables: 'Deliverables', rubric: 'Rubric', preference: 'Preference', checks: 'Checks' };
+let rliData = null;
+async function showRliView(which) {
+  setActiveTab(which);
+  hideTrajToolbar();
+  document.querySelector('.doc__regen')?.remove();
+  viewReopeners.set(`rli-${which}`, { label: RLI_LABEL[which], reopen: () => showRliView(which) });
+  const build = {
+    brief: rli.buildBrief,
+    deliverables: rli.buildDeliverables,
+    rubric: rli.buildRubric,
+    preference: rli.buildPreference,
+    checks: async () => { rubricPromise ||= api('/spec/rubric'); const { dimensions } = await rubricPromise; return rli.buildChecks(dimensions); },
+  }[which];
+  const key = `rli-${which}`;
+  if (!viewCache.has(key)) {
+    const node = await build();
+    mountView(key, () => node);
+  } else {
+    mountView(key, () => null);
+  }
+}
+
+
 function setActiveTab(key) {
   activeTab = key;
   for (const b of document.querySelectorAll('#tabs button[data-tab]')) {
@@ -181,6 +222,11 @@ function openTab(key) {
 }
 
 function tabBadge(key) {
+  if (meta?.kind === 'rli') {
+    if (key === 'rubric' && rliData) return String(rliData.criteria.length);
+    if (key === 'checks' && rliData) { const f = rliData.checks.filter((c) => c.status === 'fail').length; return f ? `${f} fail` : null; }
+    if (key === 'deliverables' && rliData) return String(rliData.files.golden.length + rliData.files.ad1.length + rliData.files.ad2.length);
+  }
   if (key === 'review' && meta?.findingCount) return String(meta.findingCount);
   // Both message counts on one tab, so collapsing the three didn't cost the
   // at-a-glance "how long is each side".
@@ -219,10 +265,17 @@ async function buildSidebar() {
       meta.findingCount = parseFindings(f.text || '').length;
     } catch { /* not generated yet */ }
   }
+  if (meta.kind === 'rli') {
+    TABS.splice(0, TABS.length, ...RLI_TABS);
+    rliData = await rli.load();
+    document.getElementById('dl-rank').firstChild.textContent = 'Download task.json ';
+    document.querySelector('#verdict-select option[value="GRAMMAR_ONLY"]')?.remove();
+  }
   renderTabs();
   buildFilesMenu();
   renderTaskStrip();
 
+  if (meta.kind === 'rli') return;
   for (const m of ['model_a', 'model_b']) {
     loadTrajectory(m)
       .then((t) => { trajMeta[m] = `${t.count}`; renderTabs(); })
@@ -274,6 +327,23 @@ async function renderTaskStrip() {
     queue = { n: idx >= 0 ? idx + 1 : null, total: mine.length, next };
   } catch { /* strip degrades to findings only */ }
 
+  if (meta.kind === 'rli' && rliData) {
+    const n = (st) => rliData.checks.filter((c) => c.status === st).length;
+    const pctS = (k) => (rliData.scores?.[k]?.percentage ?? '—');
+    mount(strip,
+      queue?.n ? el('span', {}, `Task ${queue.n} of ${queue.total} you claimed`) : null,
+      queue?.n ? el('span', { class: 'sep' }, '·') : null,
+      el('span', {}, `RD ${pctS('golden')}% · AD1 ${pctS('ad1')}% · AD2 ${pctS('ad2')}%`),
+      el('span', { class: 'sep' }, '·'),
+      el('a', { href: '#', onclick: (e) => { e.preventDefault(); openTab('checks'); } },
+        el('b', { class: n('fail') ? 'is-warn' : 'is-ok', style: 'font-family:var(--font);font-size:12px' },
+          n('fail') ? `${n('fail')} auto-check fail${n('fail') > 1 ? 's' : ''}` : 'auto-checks clear'),
+        n('warn') ? ` · ${n('warn')} to check` : ''),
+      el('span', { class: 'spacer' }),
+      queue?.next ? el('a', { href: `${window.__base__ || ''}/task/${queue.next.bucket}/${queue.next.id}`, style: 'font-weight:600' }, 'Next task →') : null,
+    );
+    return;
+  }
   mount(strip,
     // Queue position only when there IS a queue — "Not claimed by you" was
     // the header's job said a second time.
@@ -652,7 +722,7 @@ let rubricPromise = null;
 async function showQcSpec(focusKey = null) {
   setActiveTab('qcspec');
   hideTrajToolbar();
-  viewerTitle.textContent = 'QC spec — V11 rubric';
+  viewerTitle.textContent = 'QC spec';
   document.querySelector('.doc__regen')?.remove();
   viewReopeners.set('qcspec', { label: 'QC spec', reopen: () => { setActive(findDocNav('QC spec')); showQcSpec(); } });
   rubricPromise ||= api('/spec/rubric');
@@ -696,6 +766,7 @@ function buildQcSpecView(dimensions) {
   // V11 added a milder score-4 band ("single minor slip") alongside 3 — both are
   // non-fails, so 4 shares the non-fail treatment in a softer shade.
   const SCORE = {
+    1: { label: 'Fail', cls: 'fail' },
     2: { label: 'Fail', cls: 'fail' },
     3: { label: 'Non-fail', cls: 'nonfail' },
     4: { label: 'Non-fail', cls: 'nonfail minor' },
@@ -725,8 +796,9 @@ function buildQcSpecView(dimensions) {
   return el('div', { class: 'qcspec' },
     el('h1', {}, 'QC spec'),
     el('p', { class: 'hint-line' },
-      `V11 rubric · ${dimensions.length} failure modes across ${byCategory.size} categories. `,
-      'Cited as R-keys throughout reviews, remediations, and Acey — click any citation to land on its card.'),
+      meta?.kind === 'rli'
+        ? `Updated RLI spec doc · ${dimensions.length} dimensions across ${byCategory.size} categories. Grade to the lowest dimension: any 1 is a Fail, any 3 makes the task a Non-fail, all 5s is No issues. Cited as D-keys — click any citation to land on its card.`
+        : `V11 rubric · ${dimensions.length} failure modes across ${byCategory.size} categories. Cited as R-keys throughout reviews, remediations, and Acey — click any citation to land on its card.`),
     ...[...byCategory.entries()].flatMap(([category, groups]) => [
       el('h2', { class: 'spec-cat' }, category),
       [...groups.entries()].map(([group, dims]) => {
@@ -1992,8 +2064,9 @@ wireCopy('copy-outlier-link', () => OUTLIER_CLAIM_URL);
 // under a stamped filename, so a saved copy is identifiable later. Navigation,
 // not api(): the JSON file route clips text at 200k chars, which would save a
 // truncated (invalid) rank.json labelled as the current state.
-function wireDownload(id, file, suffix) {
+function wireDownload(id, file, suffix, pick = null) {
   document.getElementById(id).addEventListener('click', () => {
+    if (pick) { file = pick(); suffix = file; }
     const name = `${taskId}_${suffix}`;
     const a = document.createElement('a');
     a.href = `${window.__base__ || ''}/api/task/${bucket}/${taskId}/file?path=${encodeURIComponent(file)}&download=1&name=${encodeURIComponent(name)}`;
@@ -2002,7 +2075,7 @@ function wireDownload(id, file, suffix) {
     closeMenus();
   });
 }
-wireDownload('dl-rank', 'rank.json', 'rank.json');
+wireDownload('dl-rank', 'rank.json', 'rank.json', () => (meta?.kind === 'rli' ? 'task.json' : 'rank.json'));
 wireDownload('dl-ledger', 'fix_ledger.json', 'fix_ledger.json');
 
 const chatLog = document.getElementById('chat-log');
@@ -2747,6 +2820,8 @@ await buildSidebar();
 const params = new URLSearchParams(location.search);
 if (params.get('traj')) {
   showTrajectory(params.get('traj'), params.has('msg') ? Number(params.get('msg')) : null);
+} else if (meta?.kind === 'rli') {
+  openTab(params.get('tab') || 'brief');
 } else if (hasReview) {
   openTab('review');
 } else {

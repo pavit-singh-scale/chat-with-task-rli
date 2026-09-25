@@ -53,7 +53,7 @@ function read(file) {
 // UUIDs (dim.id) that the platform uses.
 // Source of truth: the admin-uploaded copy in DATA_DIR (writable, persists in
 // the data volume); falls back to a file dropped into SPEC_DIR.
-export const SCORE_BANDS = { 2: '2 Fail', 3: '3 Non-Fail', 4: '4 Non-Fail (minor)', 5: '5 Pass' };
+export const SCORE_BANDS = { 1: '1 Fail', 2: '2 Fail', 3: '3 Non-Fail', 4: '4 Non-Fail (minor)', 5: '5 Pass' };
 let rubricCache = null;
 const uploadedRubricPath = path.join(config.dataDir, 'rubric.csv');
 
@@ -68,8 +68,31 @@ export function saveRubricCsv(csvText) {
   return getRubric();
 }
 
+// RLI queue: the QC spec ships as structured JSON (spec/RLI_QC_SPEC.json,
+// transcribed from the "Updated RLI spec doc"). When present it wins over the
+// V11 CSV; dimensions are keyed D1..Dn and cited as spec://D<n>.
+export const RLI_SPEC = (() => {
+  try { return JSON.parse(fs.readFileSync(path.join(specDir, 'RLI_QC_SPEC.json'), 'utf8')); } catch { return null; }
+})();
+export const SPEC_PREFIX = RLI_SPEC ? 'D' : 'R';
+
+function rliDims() {
+  return RLI_SPEC.dimensions.map((d, i) => ({
+    key: `D${i + 1}`,
+    id: `D${i + 1}`,
+    category: d.category,
+    group: d.name,
+    variant: null,
+    name: d.name,
+    description: d.notes || '',
+    auto: d.auto || null,
+    options: d.options.map((o) => ({ score: o.score, category: o.label === 'No Issues' ? null : o.label, text: o.text, requiresJustification: o.score < 5 })),
+  }));
+}
+
 export function getRubric() {
   if (rubricCache) return rubricCache;
+  if (RLI_SPEC) return (rubricCache = rliDims());
   let raw;
   for (const p of [uploadedRubricPath, path.join(specDir, 'V11_RUBRIC.csv')]) {
     try { raw = fs.readFileSync(p, 'utf8'); break; } catch { /* try next */ }

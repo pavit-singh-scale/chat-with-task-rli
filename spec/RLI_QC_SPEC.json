@@ -1,0 +1,189 @@
+{
+  "source": "Updated RLI spec doc — Drive 1at_7pOx6XL_pIucP9dOy_QB5m4UmpnYK8OG0Gzq_QdU (pulled 2026-09-24). Source of truth for the RLI queue; supersedes the V8 CSV.",
+  "project_id": "6a989ef00d42ba8e15aaac6c",
+  "context": "Models have become strong at producing code and back-end logic, but professional creative work is judged by a different standard. A deliverable can contain every element the client asked for and still be unusable: the layout is broken, the branding is off, characters change appearance between images, text is cramped or misspelled, and the whole thing simply looks less polished than what a professional would hand over. In this project we build a proxy of Scale AI's RLI evalset focused on media generation and editing, where every deliverable is a visual, audio, video, 3D or interactive artifact and where how it looks weighs more than whether it's there: 65% of every rubric grades aesthetics, against 30% correctness and 5% format.\n\nContributors create tasks consisting of a realistic client brief with input files, an expert-produced golden output that scores 97% or higher on the rubric, a rubric of 40+ binary pass/fail criteria, and a preference ranking comparing the golden output against the model's attempt. Tasks are calibrated so the reference model (Gemini 3.7 Flash with maximum thinking and generation tools) scores uniformly between 25% and 50%. Tasks are drawn from 11 creative domains.",
+  "grading": [
+    "Grade to the lowest dimension across all rubrics (if one dimension is a 2, the task is a 2).",
+    "If the task meets any criteria under 1-2 Fail, the task is a fail.",
+    "If the task does not fail and meets a 3-4 [Non-Fail] on any dimension, the whole task is a 3-4 [Non-Fail].",
+    "All dimensions must be a 5 for the task to receive a 5.",
+    "Between 1 and 2: pick 1 if the attempter put little to no effort. Between 3 and 4: judge how seriously the minor issue affects quality.",
+    "Prompt or task instructions always take precedence over other dimensions."
+  ],
+  "dimensions": [
+    {
+      "category": "SxS Rating", "name": "Ranking Disagreement",
+      "notes": "Covers QC agreement with the contributor's preference ratings (three comparisons × five dimensions on the 1–7 scale).",
+      "options": [
+        { "score": 1, "label": "Fail - Major Ranking Disagreement", "text": "You and CB have a severe disagreement, such as one marks AD1/AD2 as at most 2 in at least 2 dimensions and the auditor thinks it's at least a 6, or vice versa." },
+        { "score": 3, "label": "Non-Fail - Loose Ranking Disagreement", "text": "For 2 dimensions, you and the contributor disagree on non-adjacent buckets; or for 3+ dimensions, you and the contributor disagree on adjacent buckets." },
+        { "score": 5, "label": "No Issues", "text": "You agree with all of the contributor's ratings; OR any variance is a matter of subjective taste that the justification adequately supports." }
+      ]
+    },
+    {
+      "category": "Justification", "name": "Analysis",
+      "notes": "The SxS justification must provide a detailed explanation of what the brief asks for and compare the deliverables accordingly.",
+      "options": [
+        { "score": 1, "label": "Fail - Generic Justification", "text": "The justification does not provide any explanation other than stating the ranking, e.g. \"A is better.\"" },
+        { "score": 3, "label": "Non-Fail - Generic Justification", "text": "The justification provides some explanation or evidence supporting the SxS ranking, but it did not address all the issues." },
+        { "score": 5, "label": "No Issues", "text": "The justification is very detailed: it explains what the brief asks for comprehensively and compares the deliverables in detail." }
+      ]
+    },
+    {
+      "category": "Rubric Criteria", "name": "Criteria Count (40–100)", "auto": "count",
+      "notes": "The rubric is the checklist of binary (pass/fail) criteria used to score the golden output and every model attempt. Count every criterion, including negative-weight (penalty) criteria.",
+      "options": [
+        { "score": 1, "label": "Fail - Criteria Count", "text": "The rubric has fewer than 40 criteria." },
+        { "score": 3, "label": "Non-Fail - Criteria Count", "text": "The rubric has more than 100 criteria." },
+        { "score": 5, "label": "No Issues", "text": "The rubric contains 40 to 100 criteria." }
+      ]
+    },
+    {
+      "category": "Rubric Criteria", "name": "Weights", "auto": "weights",
+      "notes": "Weight is signed importance from −10 to +10 (positive = something the deliverable should have; negative = a defect it should not have).\n\nTaxonomy: Critically Important (8 to 10) — the deliverable is unacceptable without it; Important (4 to 7) — expected in professional work, missing it clearly hurts the result; Slightly Important (1 to 3) — adds polish or value beyond the core ask; Slightly Detrimental (−1 to −3) — a minor flaw a client would notice; Detrimental (−4 to −7) — a serious defect, such as unprofessional practice; Critically Detrimental (−8 to −10) — a dealbreaker, such as violating an explicit constraint or a non-working deliverable.\n\nImportant elements must be weighted high. Aesthetics must account for at least 65% of the summed positive weight (hard requirement). The client's mix: 5% formatting, 30% brief compliance, 65% aesthetics + functionality + usability/professionalism.",
+      "options": [
+        { "score": 1, "label": "Fail - Criteria Weights", "text": "Aesthetics accounts for less than 65% of the summed positive weight; OR 5+ or 10% of the rubric (whichever is greater) criteria that AD1 and/or AD2 fail AND are weighted as Critically Important/Detrimental when they should be Slightly Important/Detrimental, or vice versa." },
+        { "score": 3, "label": "Non-Fail - Criteria Weights", "text": "At most 5 criteria that AD1 and/or AD2 fail AND are weighted as Critically Important/Detrimental when they should be Slightly Important/Detrimental, or vice versa." },
+        { "score": 5, "label": "No Issues", "text": "There are no criteria that AD1 and/or AD2 fail AND are weighted as Critically Important/Detrimental when they should be Slightly Important/Detrimental, or vice versa." }
+      ]
+    },
+    {
+      "category": "Rubric Criteria", "name": "Golden-Solution Neutrality",
+      "notes": "Rubrics must not enforce subjective choices without leaving room for other plausible solutions. Professional expectations/standards are OK as rubrics. If a choice is subjective, it should be comparable to the golden or phrased leniently.\n\nA major error example: \"The cupboards are red\" where nothing in the brief/input files asks for red and it cannot be justified by professional expectations.",
+      "options": [
+        { "score": 1, "label": "Fail - Golden-Solution Neutrality", "text": "20% or more of the criteria enforce subjective choices without room for equally plausible alternatives, and are neither comparable to the golden reference nor phrased leniently." },
+        { "score": 3, "label": "Non-Fail - Golden-Solution Neutrality", "text": "11%–19% of the criteria have such errors." },
+        { "score": 5, "label": "No Issues", "text": "10% or less of the criteria enforce an arbitrary subjective choice." }
+      ]
+    },
+    {
+      "category": "Rubric Criteria", "name": "Overlap / Redundancy",
+      "notes": "Redundancy = two criteria independently assess the same elements (e.g., Criteria 1: response does a, b, c / Criteria 2: response does a, b). A single criterion that introduces and then specifies related requirements is acceptable.",
+      "options": [
+        { "score": 1, "label": "Fail - Overlap / Redundancy", "text": "2 or more criteria are redundant or overlapping (independently assessing the same elements)." },
+        { "score": 3, "label": "Non-Fail - Overlap / Redundancy", "text": "Exactly 1 criterion is redundant or overlapping with another." },
+        { "score": 5, "label": "No Issues", "text": "No redundant criteria are present." }
+      ]
+    },
+    {
+      "category": "Rubric Criteria", "name": "Coverage",
+      "notes": "The rubric list should be as comprehensive as possible. Count three things when measuring what is missing: (1) the brief's explicit requests, (2) widely-accepted implicit professional expectations even if not specified, and (3) NUANCES OF THE FIELD — things only a professional would check and AI/students would miss (e.g., a wallpaper pattern must continue seamlessly when tiled; this deserves a high-importance criterion even though no brief spells it out). The rubric should highlight the important elements, capturing explicit and implicit human/professional preferences and expectations.",
+      "options": [
+        { "score": 1, "label": "Fail - Missing Coverage", "text": "Fail if any of these is present: (1) missing rubric criteria across the three categories are ≥10% of the rubric; (2) the rubric is highly skewed toward a handful of aspects and does not provide full coverage (the client's 5% formatting / 30% brief compliance / 65% aesthetics + functionality + usability/professionalism mix is fine); (3) the rubric is too high-level — only superficial checks, missing what professionals care about (high-level is OK as long as the details are also called out); (4) the rubric does not cover 3 or more of the brief's explicit requests." },
+        { "score": 3, "label": "Non-Fail - Missing Coverage", "text": "Missing criteria that correspond to the brief's explicit requirements are at least 1 but less than 10% of the rubric; OR 1+ implicit expectations are missing." },
+        { "score": 5, "label": "No Issues", "text": "The rubric covers all the explicit requests, the implicit professional expectations, and the expert-level nuances of the field." }
+      ]
+    },
+    {
+      "category": "Rubric Criteria", "name": "Relevance & Correctness",
+      "notes": "Criteria must be mostly faithful to the brief and to general consensus or justifiable preferences of the domain. Region-based constraints refer to locale and localization when indicated in the brief and/or input files.\n\nCriteria must match the brief exactly — correct spelling and naming of terms, and specific values rather than generalizations. If the brief specifies a particular color, size, count, or format, the criterion should name that exact value. Example: the brief specified amber #F4A300. Good: \"The banner uses #F4A300\". Bad: \"The banner uses a warm color\". Bad: \"The banner uses #F4B255\". We are not evaluating for general accuracy.",
+      "options": [
+        { "score": 1, "label": "Fail - Criteria Accuracy", "text": "2 or more criteria are irrelevant to the task (no clear justification that they are a requirement), arbitrarily introduced, or assume region-based constraints the brief does not indicate." },
+        { "score": 3, "label": "Non-Fail - Criteria Accuracy", "text": "Exactly 1 criterion is irrelevant, unjustified, or does not make sense given the brief." },
+        { "score": 5, "label": "No Issues", "text": "Every criterion makes sense given the brief: relevant, justified as a requirement, and free of undeclared region-based assumptions." }
+      ]
+    },
+    {
+      "category": "Rubric Criteria", "name": "Atomicity",
+      "notes": "Criteria should be MOSTLY atomic: they must not combine irrelevant/unrelated checks. Bundling IS acceptable when two things should be evaluated at the same time. E.g., checking if cupboards, floors and lighting follow a coherent style in one criterion is OK; checking if lighting is present and french doors are chosen is not.",
+      "options": [
+        { "score": 1, "label": "Fail - Criteria Atomicity", "text": "4+ or 10% of the rubric (whichever is bigger) criteria combine unrelated checks together." },
+        { "score": 3, "label": "Non-Fail - Criteria Atomicity", "text": "1–3 or ≤9% of criteria bundle unrelated constraints, or a few bundles are borderline but defensible." },
+        { "score": 5, "label": "No Issues", "text": "Criteria are mostly atomic: no criterion bundles multiple unrelated constraints; combined criteria only pair elements that should be evaluated together." }
+      ]
+    },
+    {
+      "category": "Rubric Criteria", "name": "Self-contained or Vague Criteria",
+      "notes": "Every criterion should be evaluable on its own; assume the grader has the RD and the brief in context. A criterion that refers to the golden reference for comparison is accepted (\"the tabletop is as thick as the golden reference\"). Vague relative references — \"scaled down\", \"shortened\", \"improved contrast\" — fail: they point at a fact stored somewhere else instead of stating it, and two graders will fill the gap differently.",
+      "options": [
+        { "score": 1, "label": "Fail - Self-Contained or Vague Criteria", "text": "4+ or 10% of the rubric (whichever is bigger) criteria are vague or not self-contained." },
+        { "score": 3, "label": "Non-Fail - Self-Contained or Vague Criteria", "text": "1–3 or ≤9% of criteria are vague or not self-contained, and neither fail condition applies." },
+        { "score": 5, "label": "No Issues", "text": "All criteria are evaluable on their own; self-contained within the RD, the inputs and the brief, and/or by professional nuance; none require external references and none are vague." }
+      ]
+    },
+    {
+      "category": "Rubric Criteria", "name": "Aesthetic & Comparative Depth",
+      "notes": "When design and functionality are important in the domain, include aesthetic and/or functionality criteria when relevant.",
+      "options": [
+        { "score": 1, "label": "Fail - Aesthetic Criteria", "text": "Design is central to the brief but the rubric has almost no aesthetic and/or functionality criteria when relevant, or judges aesthetics as a single lump." },
+        { "score": 3, "label": "Non-Fail - Aesthetic Criteria", "text": "The rubric has aesthetic and/or functionality criteria, when relevant, but misses key elements." },
+        { "score": 5, "label": "No Issues", "text": "The rubric grades each relevant visual/auditory element on its own, with depth proportional to how central design is." }
+      ]
+    },
+    {
+      "category": "Rubric Criteria", "name": "Criteria Justifications",
+      "notes": "Do not penalize when the identified inaccuracy is subjective, or the CB's POV is reasonable. The percentage is out of the total number of justifications, not criteria: 30 criteria × 3 responses = 90 justifications, so 10% is 9.",
+      "options": [
+        { "score": 1, "label": "Fail - Criteria Justifications", "text": "20% or more of the criteria justifications are objectively inaccurate." },
+        { "score": 3, "label": "Non-Fail - Criteria Justifications", "text": "11%–19% of the criteria justifications are objectively inaccurate." },
+        { "score": 5, "label": "No Issues", "text": "All justifications are correct and aligned with their ratings, OR 10% or less are objectively inaccurate." }
+      ]
+    },
+    {
+      "category": "Rubric Grading", "name": "Justification–Final Score Alignment", "auto": "alignment",
+      "notes": "Preference ranking and rubric grading must not be in high contrast. Tolerance: when rubric totals are within a couple of percent (63% vs 62%), either preference direction is acceptable. A failure is a large, opposing gap — e.g. the justification says RD is significantly better than the ADs, yet an AD earns ~90% of the rubric score; or rubric scores show A slightly better than B but the preference rankings differ by 3+ points across 3 dimensions indicating B is better.",
+      "options": [
+        { "score": 1, "label": "Fail - Justification - Final Score Alignment", "text": "The preference ranking and rubric scores are in high contrast: the rubric totals show a large gap that opposes the stated preference direction, well beyond a couple of percent." },
+        { "score": 3, "label": "Non-Fail - Justification Alignment", "text": "A modest mismatch between the preference direction and the rubric totals — a couple of percent, not a reversed story." },
+        { "score": 5, "label": "No Issues", "text": "The preference ranking and rubric totals tell the same story." }
+      ]
+    },
+    {
+      "category": "Rubric Grading", "name": "Golden Artifact Sanity (RD ≥97%)", "auto": "golden",
+      "notes": "Check the \"Final Rubric Scores\" percentage for RD. It should be 97% or more as printed in the task. DO NOT adjust or deduct points from the RD final score — the original rubric score is the source of truth.",
+      "options": [
+        { "score": 1, "label": "Fail - Golden Output Scoring", "text": "The golden output scores less than 97% on the rubric." },
+        { "score": 5, "label": "No Issues", "text": "Golden output scores 97% or higher on the rubric." }
+      ]
+    },
+    {
+      "category": "Task Setup", "name": "Brief & Input Sufficiency",
+      "notes": "Task-level gate: the brief and input files must be sufficient to realistically carry out the task. If severely missing, the task fails regardless of the contributor's work — they should have flagged it at the brief-sufficiency gate. Fail example: an interior architecture task whose inputs don't include the plan, whose brief doesn't explain the space, and whose rubric assumes a specific plan.",
+      "options": [
+        { "score": 1, "label": "Fail - Brief & Input Sufficiency", "text": "The brief and input files are severely missing for the task, and the contributor proceeded anyway instead of flagging it." },
+        { "score": 5, "label": "No Issues", "text": "The brief and input files are sufficient to realistically carry out the task." }
+      ]
+    },
+    {
+      "category": "All CB Generated Content", "name": "Unlisted Minor Errors",
+      "notes": "Describe the error in detail in the audit feedback.",
+      "options": [
+        { "score": 3, "label": "Non-Fail - Unlisted Minor Errors", "text": "There are errors in the task not explicitly covered by the grading rubric that prevent it from being perfect." },
+        { "score": 5, "label": "No Issues", "text": "There are no unlisted errors that degrade the quality of the task." }
+      ]
+    },
+    {
+      "category": "Rubric Grading", "name": "Accuracy (RD/AD1/AD2)",
+      "notes": "Verdict accuracy for RD, AD1 and AD2.",
+      "options": [
+        { "score": 1, "label": "Fail - Criteria Verdict Accuracy", "text": "10% or more of Pass/Fail verdicts per response are incorrect." },
+        { "score": 3, "label": "Non-Fail - Criteria Verdict Accuracy", "text": "Less than 10% but at least 1 of the Pass/Fail verdicts per response are incorrect." },
+        { "score": 5, "label": "No Issues", "text": "Every Pass/Fail verdict for RD, AD1 and AD2 is correct." }
+      ]
+    },
+    {
+      "category": "Stumping Score", "name": "Final percentage for AD1 and AD2", "auto": "stumping",
+      "notes": "The QC auditor manually validates each pass/fail for each criterion; if QC's score for the models is above the threshold, the task fails.",
+      "options": [
+        { "score": 1, "label": "Fail - Stumping Score", "text": "AD1 is > 70% or AD2 is > 50% on the final rubric summary." },
+        { "score": 5, "label": "No Issues", "text": "AD1 is 70% or less AND AD2 is 50% or less." }
+      ]
+    },
+    {
+      "category": "File Names and Paths", "name": "Accuracy", "auto": "paths",
+      "notes": "Do not fail if the file is called by name in the brief without mentioning an exact path.",
+      "options": [
+        { "score": 1, "label": "Fail - Incorrect/Inconsistent Paths", "text": "An explicit path is specified in the brief but the artifact is not found there, OR the brief's placements and the rubric's expectations are inconsistent (e.g. brief asks for 'final_version.pdf', rubric checks 'final version.pdf')." },
+        { "score": 5, "label": "No Issues", "text": "Explicit paths in the brief resolve, and the brief and rubric agree on names and placements." }
+      ]
+    },
+    {
+      "category": "Rubric Criteria", "name": "Derived-Deliverable Provenance", "auto": "provenance",
+      "notes": "Applies whenever the brief asks for an artifact that must be derived from a supplied or authored source file rather than created independently: renders or turntables from a 3D model, exports from a CAD file, stems bounced from a session, frames cut from a supplied video. Example: in tasks that ask for renders of 3D files (like Contemporary Residence), models that generate images from scratch instead of rendering them from the 3D files must be heavily punished.",
+      "options": [
+        { "score": 1, "label": "Fail - Derived-Deliverable Provenance", "text": "The brief requires a derived deliverable AND the rubric has no criterion penalising generation-instead-of-derivation; OR such a criterion exists but is weighted outside Critically Detrimental (−8 to −10); OR a deliverable that was demonstrably generated rather than derived is passed on it." },
+        { "score": 5, "label": "No Issues", "text": "The rubric contains a Critically Detrimental criterion that explicitly penalises generating the deliverable instead of deriving it, names the evidence a grader should check, and the RD/AD1/AD2 verdicts on it are correct." }
+      ]
+    }
+  ]
+}

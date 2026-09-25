@@ -23,9 +23,9 @@
     </label>
     <div class="seg" id="sev-filter" role="group" aria-label="Severity filter">
       <button type="button" data-sev="ALL" aria-pressed="true">All</button>
-      <button type="button" data-sev="HARD_FAIL" aria-pressed="false">Hard</button>
-      <button type="button" data-sev="SOFT_FAIL" aria-pressed="false">Soft</button>
-      <button type="button" data-sev="PASS" aria-pressed="false">Pass</button>
+      <button type="button" data-sev="HARD_FAIL" aria-pressed="false">Fail</button>
+      <button type="button" data-sev="SOFT_FAIL" aria-pressed="false">Non-fail</button>
+      <button type="button" data-sev="PASS" aria-pressed="false">No issues</button>
     </div>
     <!-- The queue controls are their own group: "my queue" is an axis (like
          search), not a fifth severity, and it earns a live count. -->
@@ -57,9 +57,9 @@
         <span>Move every</span>
         <select class="select" id="bv-sev" aria-label="severity to match">
           <option value="ALL">Any severity</option>
-          <option value="HARD_FAIL">Hard</option>
-          <option value="SOFT_FAIL">Soft</option>
-          <option value="PASS">Pass</option>
+          <option value="HARD_FAIL">Fail</option>
+          <option value="SOFT_FAIL">Non-fail</option>
+          <option value="PASS">No issues</option>
           <option value="UNSORTED">Unsorted</option>
         </select>
         <span>task in</span>

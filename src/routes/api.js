@@ -18,6 +18,7 @@ import { runAgentLoop } from '../llm.js';
 import { TOOL_DEFS, makeExecutor } from '../tools.js';
 import { generateDoc, taskContext, CITATION_RULES } from '../docgen.js';
 import { QUALITY_CANON, getRubric, saveRubricCsv } from '../spec.js';
+import { readRliIn } from '../rli.js';
 import { recordUsage, readUsage, usageCsv } from '../usage.js';
 import { enqueueDocs, jobSummary, statusFor } from '../jobs.js';
 import { startPull, pullStatus, currentDownload } from '../l10.js';
@@ -351,6 +352,18 @@ api.get('/export/all.csv', wrap(async (req, res) => {
 api.get('/task/:bucket/:id', wrap(async (req, res) => res.json(taskMeta(req.params.bucket, req.params.id))));
 
 api.get('/task/:bucket/:id/files', wrap(async (req, res) => res.json(listFiles(req.params.bucket, req.params.id))));
+
+// RLI: the normalized record + deterministic spec checks for the task page.
+api.get('/task/:bucket/:id/rli', wrap(async (req, res) => res.json(readRliIn(taskDir(req.params.bucket, req.params.id)))));
+
+// RLI: stream any artifact byte-for-byte with its real content type (range
+// requests work, so video/audio seek). Traversal-guarded like every task read.
+api.get('/task/:bucket/:id/raw', wrap(async (req, res) => {
+  const abs = resolveSafe(taskDir(req.params.bucket, req.params.id), String(req.query.path || ''));
+  if (!fs.existsSync(abs) || !fs.statSync(abs).isFile()) throw httpError(404, `file not found: ${req.query.path}`);
+  if (req.query.download) return res.download(abs, path.basename(abs));
+  res.sendFile(abs, { dotfiles: 'allow', headers: { 'Cache-Control': 'private, max-age=3600' } });
+}));
 
 api.get('/task/:bucket/:id/file', wrap(async (req, res) => {
   const rel = String(req.query.path || '');

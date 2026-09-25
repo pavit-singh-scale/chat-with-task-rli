@@ -9,7 +9,7 @@ const VERDICT_LABELS = {
   SBQ: 'SBQ',
   SECOND_OPINION: 'Second Opinion Needed',
 };
-const SEV_LABEL = { HARD_FAIL: 'Hard', SOFT_FAIL: 'Soft', PASS: 'Pass', UNSORTED: 'Unsorted' };
+const SEV_LABEL = { HARD_FAIL: 'Fail', SOFT_FAIL: 'Non-fail', PASS: 'No issues', UNSORTED: 'Unsorted' };
 // Severity is the only thing colour means on a board card. Unsorted has no colour:
 // it is an absence of a verdict, not a fourth status.
 const SEV_TAG = { HARD_FAIL: 'tag--hard', SOFT_FAIL: 'tag--soft', PASS: 'tag--pass', UNSORTED: '' };
@@ -451,6 +451,23 @@ function allTickets() {
   return out;
 }
 
+// RLI cards: domain, the three rubric scores against their gates, and which
+// automated spec checks already fail — the triage signal before anyone opens it.
+function rliCardBits(r) {
+  const sc = (lbl, v, bad) => el('span', { class: `rli-cs${bad ? ' is-bad' : ''}` }, el('i', {}, lbl), v == null ? '—' : `${Math.round(v)}%`);
+  return el('div', { class: 'rli-card' },
+    el('div', { class: 'rli-card__row' },
+      el('span', { class: 'tag tag--quiet' }, r.domain || '—'),
+      el('span', { class: 'spacer' }),
+      sc('RD', r.scores.golden, r.scores.golden != null && r.scores.golden < 97),
+      sc('AD1', r.scores.ad1, r.scores.ad1 != null && r.scores.ad1 > 70),
+      sc('AD2', r.scores.ad2, r.scores.ad2 != null && r.scores.ad2 > 50)),
+    r.checks.fail || r.incomplete
+      ? el('div', { class: 'rli-card__fails' }, r.checks.failing.map((f) => el('span', { class: 'rli-card__fail' }, f.replace(/\s*\(.*\)$/, ''))))
+      : el('div', { class: 'rli-card__ok' }, r.checks.warn ? `Auto-checks clear · ${r.checks.warn} to check` : 'Auto-checks clear'),
+  );
+}
+
 function ticketCard(t) {
   const lane = laneOf(t);
   const card = el('a', {
@@ -487,6 +504,7 @@ function ticketCard(t) {
     ),
     el('div', { class: 'card__id' }, t.id),
     t.problem ? el('div', { class: 'card__problem' }, t.problem) : null,
+    t.kind === 'rli' && t.rli ? rliCardBits(t.rli) : null,
     lane === 'SECOND_OPINION' && t.verdictNote
       ? el('div', { class: 'card__why', title: t.verdictNote }, el('b', {}, 'Why · '), t.verdictNote)
       : null,
@@ -1041,7 +1059,7 @@ function openTaskForTour() {
 
 const BOARD_TOUR = [
   { title: 'Welcome to ACC Audit Studio 👋', body: 'A hands-on tour — you\'ll actually try things on a private sandbox task (marked "sandbox"). Nothing you do here is real; it\'s deleted when the tour ends. Use Next / Back or ← →, Esc to leave.' },
-  { selector: '.toolbar', title: 'Find & filter tasks', body: 'Search by task ID or problem text, and filter by severity — Hard, Soft, or Pass. Invaluable when a delivery drops hundreds of tasks at once.' },
+  { selector: '.toolbar', title: 'Find & filter tasks', body: 'Search by task ID or problem text, and filter by severity — Fail, Non-fail, or No issues. Invaluable when a delivery drops hundreds of tasks at once.' },
   { selector: '.lanes', title: 'Your workflow board', body: 'Every task sits in a lane that reflects its state: Open → In review → (Needs 2nd opinion) → Resolved. It\'s the shared source of truth for who\'s doing what.' },
   { selector: '#tour-dummy-card', pin: 'top', title: 'Try it: drag & drop 🖱️', body: 'The drag IS the action — no forms. Grab your highlighted "sandbox" card (in the Soft column) and drag it into another lane: drop in Resolved to pick a decision, "Needs 2nd opinion" to flag it, or "In review" to claim it. Go ahead — I\'ll wait.',
     try: { action: 'drag_drop', hint: 'Waiting for you to drag the sandbox card into another lane…', verify: verifyDragged } },

@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { config, BUCKETS } from './config.js';
 import { fixSummary } from './fixes.js';
+import { isRliTask, readRliIn, checkRollup } from './rli.js';
 
 const TASK_ID_RE = /^[a-f0-9]{24}$/;
 const TEXT_READ_CAP = 200_000; // chars served per file read
@@ -116,6 +117,26 @@ export function taskMeta(bucket, id) {
     models: [],
     problem: '',
   };
+  if (isRliTask(dir)) {
+    try {
+      const t = readRliIn(dir);
+      meta.kind = 'rli';
+      meta.problem = t.title;
+      meta.models = [t.models.ad1, t.models.ad2].filter(Boolean);
+      const pctOf = (k) => t.scores?.[k]?.percentage ?? null;
+      meta.rli = {
+        domain: t.domain,
+        timeline: t.timeline,
+        criteria: t.criteria.length,
+        scores: { golden: pctOf('golden'), ad1: pctOf('ad1'), ad2: pctOf('ad2') },
+        checks: checkRollup(t.checks),
+        incomplete: t.missing.some((m) => !['timeline', 'inputs block'].includes(m)),
+      };
+    } catch (e) {
+      meta.kind = 'rli';
+      meta.rliError = String(e.message || e);
+    }
+  }
   try {
     const rank = JSON.parse(fs.readFileSync(path.join(dir, 'rank.json'), 'utf8'));
     meta.models = Object.keys(rank.results || {});

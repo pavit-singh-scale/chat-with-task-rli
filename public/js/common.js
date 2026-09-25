@@ -123,7 +123,7 @@ export function renderMarkdown(md, opts = {}) {
       const pAttr = phrase ? ` data-cb-phrase="${escapeHtml(phrase)}"` : '';
       return `<a class="cb-link" href="#" data-cb-model="${c[1]}"${pAttr}>${shown}</a>`;
     }
-    const s = /^spec:\/\/(R\d{1,2})$/.exec(href || '');
+    const s = /^spec:\/\/([RD]\d{1,2})$/.exec(href || '');
     if (s) {
       const shown = hasLabel ? labelHtml : escapeHtml(s[1]);
       return `<a class="spec-link" href="#" data-spec-key="${s[1]}">${shown}</a>`;
@@ -141,7 +141,7 @@ export function renderMarkdown(md, opts = {}) {
       const lines = String(body).split('\n').map((l) => l.trim()).filter((l) => l && l.toUpperCase() !== 'NONE');
       if (!lines.length) return '';
       const items = lines.map((line) => {
-        const m = /^(R\d{1,2})\s*[—–\-:·]\s*(.+)$/.exec(line);
+        const m = /^([RD]\d{1,2})\s*[—–\-:·]\s*(.+)$/.exec(line);
         if (m) {
           return `<div class="autoqc-item"><a class="spec-link" href="#" data-spec-key="${m[1]}">${m[1]}</a><span class="autoqc-text">${escapeHtml(m[2])}</span></div>`;
         }
