@@ -393,64 +393,171 @@ export function createRli({ bucket, taskId, onCrit, onSpec, onOpenDoc }) {
     return three;
   }
 
+  // 3D viewer. Framing ignores outlier geometry (site planes, stray objects),
+  // zoom goes to the cursor, double-click re-centres the orbit on what you hit,
+  // and a compact view bar gives Fit / Front / Back / Left / Right / Top / Iso,
+  // shading modes and a grid. Keys: F fit, 1–7 views, W wireframe.
   function model3d(f, compact) {
-    const host = el('div', { class: `rli-3d${compact ? ' rli-3d--compact' : ''}` });
+    const host = el('div', { class: `rli-3d${compact ? ' rli-3d--compact' : ''}`, tabindex: '0' });
     const status = el('div', { class: 'rli-3d__status' }, 'Loading 3D viewer…');
-    const toolbar = el('div', { class: 'rli-3d__tools' });
-    host.append(status, toolbar);
+    const bar = el('div', { class: 'rli-3d__bar' });
+    const hint = el('div', { class: 'rli-3d__hint' }, 'Drag orbit · Right-drag pan · Scroll zoom · Double-click focus');
+    host.append(status, bar, hint);
     (async () => {
       try {
         const { T, OrbitControls, OBJLoader, FBXLoader, GLTFLoader, STLLoader, PLYLoader, TDSLoader, ColladaLoader } = await loadThree();
         const w = host.clientWidth || 800, h = host.clientHeight || 520;
-        const renderer = new T.WebGLRenderer({ antialias: true });
-        renderer.setPixelRatio(window.devicePixelRatio);
+        const renderer = new T.WebGLRenderer({ antialias: true, logarithmicDepthBuffer: true });
+        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
         renderer.setSize(w, h);
         host.prepend(renderer.domElement);
+        const light = document.documentElement.dataset.theme === 'light';
         const scene = new T.Scene();
-        scene.background = new T.Color(document.documentElement.dataset.theme === 'light' ? 0xf1f1f3 : 0x16171b);
-        const camera = new T.PerspectiveCamera(45, w / h, 0.001, 100000);
-        scene.add(new T.HemisphereLight(0xffffff, 0x444455, 1.1));
-        const key = new T.DirectionalLight(0xffffff, 1.2); key.position.set(3, 5, 4); scene.add(key);
+        scene.background = new T.Color(light ? 0xf1f1f3 : 0x16171b);
+        const camera = new T.PerspectiveCamera(40, w / h, 0.01, 1e7);
+        scene.add(new T.HemisphereLight(0xffffff, 0x3a3a44, 1.15));
+        const key = new T.DirectionalLight(0xffffff, 1.1); scene.add(key);
         const controls = new OrbitControls(camera, renderer.domElement);
-        controls.enableDamping = true;
+        Object.assign(controls, { enableDamping: true, dampingFactor: 0.12, screenSpacePanning: true, zoomToCursor: true, zoomSpeed: 1.1, rotateSpeed: 0.8, minDistance: 0, maxDistance: Infinity });
+
         const url = rawUrl(f.viewPath || f.path);
         const ext = (f.viewPath || f.name).split('.').pop().toLowerCase();
         status.textContent = `Loading ${f.name} (${fmtSize(f.size)})…`;
-        const material = new T.MeshStandardMaterial({ color: 0xc9ccd6, roughness: 0.6, metalness: 0.05, side: T.DoubleSide });
+        const flat = new T.MeshStandardMaterial({ color: 0xc9ccd6, roughness: 0.65, metalness: 0.05, side: T.DoubleSide });
         let obj3d;
         if (ext === 'obj') obj3d = await new OBJLoader().loadAsync(url);
         else if (ext === 'fbx') obj3d = await new FBXLoader().loadAsync(url);
         else if (ext === 'glb' || ext === 'gltf') obj3d = (await new GLTFLoader().loadAsync(url)).scene;
-        else if (ext === 'stl') obj3d = new T.Mesh(await new STLLoader().loadAsync(url), material);
-        else if (ext === 'ply') obj3d = new T.Mesh(await new PLYLoader().loadAsync(url), material);
+        else if (ext === 'stl') obj3d = new T.Mesh(await new STLLoader().loadAsync(url), flat);
+        else if (ext === 'ply') obj3d = new T.Mesh(await new PLYLoader().loadAsync(url), flat);
         else if (ext === '3ds') { const l = new TDSLoader(); l.setResourcePath(url.replace(/[^/]*$/, '')); obj3d = await l.loadAsync(url); }
         else if (ext === 'dae') obj3d = (await new ColladaLoader().loadAsync(url)).scene;
-        let meshes = 0, tris = 0;
-        const originals = new Map();
-        obj3d.traverse((o) => {
-          if (o.isMesh) {
-            meshes++;
-            const g = o.geometry;
-            tris += g.index ? g.index.count / 3 : (g.attributes.position?.count || 0) / 3;
-            originals.set(o, o.material);
-            if (ext === 'obj' || ext === '3ds' || !o.material) o.material = material;
-          }
-        });
+        if (ext === '3ds') obj3d.rotation.x = -Math.PI / 2; // 3DS is Z-up
         scene.add(obj3d);
-        const box = new T.Box3().setFromObject(obj3d);
-        const size = box.getSize(new T.Vector3()), center = box.getCenter(new T.Vector3());
-        const radius = size.length() / 2 || 1;
-        controls.target.copy(center);
-        camera.position.copy(center).add(new T.Vector3(radius * 1.4, radius * 0.9, radius * 1.6));
-        camera.near = radius / 1000; camera.far = radius * 100; camera.updateProjectionMatrix();
-        status.textContent = `${meshes} mesh${meshes === 1 ? '' : 'es'} · ${Math.round(tris).toLocaleString()} tris · ${size.x.toFixed(2)} × ${size.y.toFixed(2)} × ${size.z.toFixed(2)} units`;
-        let wire = false;
-        toolbar.append(
-          el('button', { type: 'button', class: 'btn btn--ghost', onclick: () => { wire = !wire; obj3d.traverse((o) => { if (o.isMesh) [].concat(o.material).forEach((m) => { m.wireframe = wire; }); }); } }, 'Wireframe'),
-          el('button', { type: 'button', class: 'btn btn--ghost', onclick: () => { camera.position.copy(center).add(new T.Vector3(radius * 1.4, radius * 0.9, radius * 1.6)); controls.target.copy(center); } }, 'Reset view'),
-        );
+        obj3d.updateMatrixWorld(true);
+
+        // Materials: keep the originals; "Shaded" swaps in one neutral clay material.
+        let meshes = 0, tris = 0;
+        const meshList = [];
+        obj3d.traverse((o) => {
+          if (!o.isMesh) return;
+          meshes++; meshList.push(o);
+          const g = o.geometry;
+          tris += g.index ? g.index.count / 3 : (g.attributes.position?.count || 0) / 3;
+          o.userData.orig = o.material;
+        });
+        const hasMats = meshList.some((m) => [].concat(m.userData.orig || []).some((x) => x && (x.map || (x.color && x.color.getHex() !== 0xffffff))));
+        let mode = hasMats && ext !== 'obj' ? 'materials' : 'shaded';
+        const applyMode = () => {
+          for (const m of meshList) {
+            if (mode === 'shaded') m.material = flat;
+            else m.material = m.userData.orig || flat;
+            [].concat(m.material).forEach((x) => { if (x) x.wireframe = mode === 'wire'; });
+          }
+          if (mode === 'wire') for (const m of meshList) m.material = flat;
+          flat.wireframe = mode === 'wire';
+        };
+        applyMode();
+
+        // Framing: the main object, not the whole file. Seed with the most
+        // voluminous mesh (flat site planes have ~no volume), then absorb every
+        // mesh whose centre sits inside that box grown by 35%, twice. Exported
+        // scenes often park a component library beside the model — this skips it.
+        const full = new T.Box3().setFromObject(obj3d);
+        const boxes = meshList.map((m) => new T.Box3().setFromObject(m)).filter((bx) => !bx.isEmpty());
+        const vol = (bx) => { const sz = bx.getSize(new T.Vector3()); const t = Math.max(sz.x, sz.y, sz.z) * 0.002; return Math.max(sz.x, t) * Math.max(sz.y, t) * Math.max(sz.z, t); };
+        let main = boxes.slice().sort((x, y) => vol(y) - vol(x))[0]?.clone() || full.clone();
+        for (let pass = 0; pass < 2; pass++) {
+          const grown = main.clone().expandByScalar(main.getSize(new T.Vector3()).length() * 0.35);
+          for (const bx of boxes) if (grown.containsPoint(bx.getCenter(new T.Vector3()))) main.union(bx);
+        }
+        const clusterShare = main.getSize(new T.Vector3()).length() / (full.getSize(new T.Vector3()).length() || 1);
+        let frameBox = main;
+        const center = frameBox.getCenter(new T.Vector3());
+        const size = frameBox.getSize(new T.Vector3());
+        const lo = frameBox.min.clone();
+        let radius = Math.max(size.length() / 2, 1e-3);
+        const fullRadius = Math.max(full.getSize(new T.Vector3()).length() / 2, 1e-3);
+        const fullSize = full.getSize(new T.Vector3());
+
+        // Ground grid sized to the framed geometry, at its base.
+        const gridSize = Math.pow(10, Math.ceil(Math.log10(radius * 4)));
+        const grid = new T.GridHelper(gridSize, 20, light ? 0xb5b7c0 : 0x3b3d45, light ? 0xd5d7de : 0x26282e);
+        grid.position.set(center.x, lo.y, center.z);
+        grid.visible = false;
+        scene.add(grid);
+
+        const DIRS = {
+          fit: [1.1, 0.75, 1.35], front: [0, 0, 1], back: [0, 0, -1], left: [-1, 0, 0], right: [1, 0, 0], top: [0, 1, 0.0001], iso: [1, 1, 1],
+        };
+        let anim = null;
+        const flyTo = (dirKey, target = center, dist = null, r = radius) => {
+          const d = new T.Vector3(...DIRS[dirKey === 'all' ? 'fit' : dirKey]).normalize();
+          const fov = (camera.fov * Math.PI) / 180;
+          const distance = dist ?? (r / Math.sin(fov / 2)) * 1.05;
+          const toPos = target.clone().add(d.multiplyScalar(distance));
+          anim = { fromPos: camera.position.clone(), toPos, fromT: controls.target.clone(), toT: target.clone(), t: 0 };
+        };
+        // Start framed, no animation.
+        { const d = new T.Vector3(...DIRS.fit).normalize(); camera.position.copy(center).add(d.multiplyScalar((radius / Math.sin((camera.fov * Math.PI) / 360)) * 1.05)); controls.target.copy(center); }
+        camera.near = radius / 2000; camera.far = Math.max(radius, fullSize.length()) * 200; camera.updateProjectionMatrix();
+
+        // Double-click: orbit around the point under the cursor.
+        const ray = new T.Raycaster();
+        renderer.domElement.addEventListener('dblclick', (e) => {
+          const r = renderer.domElement.getBoundingClientRect();
+          ray.setFromCamera(new T.Vector2(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1), camera);
+          const hit = ray.intersectObjects(meshList, false)[0];
+          if (!hit) return;
+          const dist = camera.position.distanceTo(hit.point) * 0.6;
+          const dir = camera.position.clone().sub(hit.point).normalize();
+          anim = { fromPos: camera.position.clone(), toPos: hit.point.clone().add(dir.multiplyScalar(dist)), fromT: controls.target.clone(), toT: hit.point.clone(), t: 0 };
+        });
+
+        const units = (n) => (n >= 1000 ? n.toFixed(0) : n >= 10 ? n.toFixed(1) : n.toFixed(2));
+        status.textContent = `${meshes.toLocaleString()} mesh${meshes === 1 ? '' : 'es'} · ${Math.round(tris).toLocaleString()} tris · ${units(fullSize.x)} × ${units(fullSize.y)} × ${units(fullSize.z)}`;
+
+        const btn = (label, title, on) => el('button', { type: 'button', class: 'rli-3d__b', title, onclick: (e) => { e.stopPropagation(); on(e); host.focus({ preventScroll: true }); } }, label);
+        const modeSeg = el('div', { class: 'rli-3d__seg' });
+        const setMode = (m) => { mode = m; applyMode(); for (const b of modeSeg.children) b.classList.toggle('on', b.dataset.m === m); };
+        for (const [m, label] of [['shaded', 'Shaded'], ...(hasMats ? [['materials', 'Materials']] : []), ['wire', 'Wire']]) {
+          const b = btn(label, `${label} view`, () => setMode(m)); b.dataset.m = m; modeSeg.append(b);
+        }
+        setMode(mode);
+        const views = el('div', { class: 'rli-3d__seg' },
+          btn('Fit', 'Frame the main model (F)', () => flyTo('fit')),
+          ...(clusterShare < 0.8 ? [btn('All', 'Frame everything in the file (A)', () => flyTo('all', full.getCenter(new T.Vector3()), null, fullRadius))] : []),
+          ...(compact ? [btn('Top', 'Top view', () => flyTo('top')), btn('Front', 'Front view', () => flyTo('front'))]
+            : [['front', 'Front'], ['back', 'Back'], ['left', 'Left'], ['right', 'Right'], ['top', 'Top'], ['iso', 'Iso']].map(([k, l], i) => btn(l, `${l} view (${i + 2})`, () => flyTo(k)))));
+        const gridBtn = btn('Grid', 'Toggle ground grid (G)', () => { grid.visible = !grid.visible; gridBtn.classList.toggle('on', grid.visible); });
+        bar.append(views, modeSeg, gridBtn);
+
+        host.addEventListener('keydown', (e) => {
+          const k = e.key.toLowerCase();
+          const map = { f: 'fit', 2: 'front', 3: 'back', 4: 'left', 5: 'right', 6: 'top', 7: 'iso', 1: 'fit' };
+          if (map[k]) { flyTo(map[k]); e.stopPropagation(); e.preventDefault(); }
+          else if (k === 'w') { setMode(mode === 'wire' ? (hasMats ? 'materials' : 'shaded') : 'wire'); e.stopPropagation(); }
+          else if (k === 'g') { gridBtn.click(); e.stopPropagation(); }
+          else if (k === 'a') { flyTo('all', full.getCenter(new T.Vector3()), null, fullRadius); e.stopPropagation(); }
+        });
+        renderer.domElement.addEventListener('pointerdown', () => { anim = null; host.focus({ preventScroll: true }); hint.classList.add('gone'); });
+
         let alive = true;
-        const tick = () => { if (!alive || !host.isConnected) { alive = false; renderer.dispose(); return; } controls.update(); renderer.render(scene, camera); requestAnimationFrame(tick); };
+        const ease = (x) => 1 - Math.pow(1 - x, 3);
+        const tick = () => {
+          if (!alive || !host.isConnected) { alive = false; renderer.dispose(); return; }
+          if (anim) {
+            anim.t = Math.min(1, anim.t + 0.07);
+            const k = ease(anim.t);
+            camera.position.lerpVectors(anim.fromPos, anim.toPos, k);
+            controls.target.lerpVectors(anim.fromT, anim.toT, k);
+            if (anim.t >= 1) anim = null;
+          }
+          key.position.copy(camera.position).add(new T.Vector3(radius, radius * 2, radius));
+          controls.update();
+          renderer.render(scene, camera);
+          requestAnimationFrame(tick);
+        };
         tick();
         new ResizeObserver(() => {
           const W = host.clientWidth, H = host.clientHeight;

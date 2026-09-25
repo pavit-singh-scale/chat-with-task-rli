@@ -3788,3 +3788,19 @@ button.rli-critchip:hover, button.rli-spec:hover { border-color: var(--accent); 
 .rli-lb__stage .rli-derived > :first-child { flex: 0 0 auto; }
 .rli-lb__cell .rli-derived > :first-child { flex: 1 1 auto; min-height: 0; }
 .rli-dxf__canvas { width: 100%; height: 100%; }
+/* 3D view bar */
+.rli-3d { outline: none; }
+.rli-3d__tools { display: none; }
+.rli-3d__bar { position: absolute; left: 50%; bottom: 12px; transform: translateX(-50%); display: flex; gap: 6px; z-index: 2;
+  padding: 4px; border-radius: 10px; background: color-mix(in srgb, var(--surface) 88%, transparent); border: 1px solid var(--border); backdrop-filter: blur(6px); }
+.rli-3d__seg { display: flex; gap: 1px; }
+.rli-3d__seg + .rli-3d__seg, .rli-3d__seg + .rli-3d__b { margin-left: 4px; padding-left: 6px; border-left: 1px solid var(--border); }
+.rli-3d__b { font-family: inherit; font-size: 11.5px; font-weight: 500; padding: 4px 9px; border: 0; border-radius: 6px; background: none; color: var(--text-2); cursor: pointer; white-space: nowrap; }
+.rli-3d__b:hover { background: var(--surface-hover); color: var(--text); }
+.rli-3d__b.on { background: var(--surface-active); color: var(--text); }
+.rli-3d .rli-3d__status { top: 10px; bottom: auto; left: 10px; }
+.rli-3d__hint { position: absolute; right: 10px; top: 10px; font-size: 10.5px; color: var(--text-faint); background: color-mix(in srgb, var(--surface) 80%, transparent); padding: 3px 8px; border-radius: 6px; transition: opacity .4s; pointer-events: none; }
+.rli-3d__hint.gone { opacity: 0; }
+.rli-3d--compact .rli-3d__bar { bottom: 8px; padding: 3px; }
+.rli-3d--compact .rli-3d__b { font-size: 10.5px; padding: 3px 7px; }
+.rli-3d--compact .rli-3d__hint { display: none; }
