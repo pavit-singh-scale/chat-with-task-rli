@@ -3842,3 +3842,11 @@ div.rli-hero__open { cursor: default; color: var(--text-3); }
 .rli-cite:hover { filter: brightness(1.15); }
 .rli-just.flash, td.flash { outline: 2px solid var(--yellow); outline-offset: -2px; }
 #copilot-mode[hidden] { display: none; }
+/* Acey log scrolls vertically only: long citation chips (file paths) wrap
+   instead of widening the log, which made trackpad scrolling drift sideways
+   and stop short under a horizontal scrollbar. */
+.acey__body { overflow-x: hidden; overscroll-behavior: contain; }
+.acey__body .bubble { min-width: 0; max-width: 100%; overflow-wrap: anywhere; }
+.acey__body .rli-cite { white-space: normal; overflow-wrap: anywhere; display: inline; padding: 0 4px; line-height: 1.9; }
+.acey__body .bubble pre { max-width: 100%; overflow-x: auto; }
+.acey__body .bubble table { display: block; max-width: 100%; overflow-x: auto; }

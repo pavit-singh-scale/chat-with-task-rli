@@ -20,7 +20,7 @@ export async function chatCompletion({ messages, tools, maxTokens = 32000, onUsa
     model: config.litellm.model,
     messages,
     max_tokens: maxTokens,
-    // Opus 5 controls thinking via adaptive mode + effort. It rejects
+    // Opus 5.x controls thinking via adaptive mode + effort (high). It rejects
     // `temperature` (and LiteLLM's reasoning_effort→thinking.enabled mapping)
     // whenever thinking is on, so we pass the native Anthropic params straight
     // through the OpenAI-compatible proxy and send no temperature.

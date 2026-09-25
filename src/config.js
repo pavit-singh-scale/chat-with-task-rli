@@ -35,7 +35,7 @@ export const config = {
   litellm: {
     baseURL: (process.env.LITELLM_BASE_URL || 'http://localhost:4000').replace(/\/+$/, ''),
     apiKey: process.env.LITELLM_API_KEY,
-    model: process.env.LITELLM_MODEL || 'claude-opus-5',
+    model: process.env.LITELLM_MODEL || 'claude-opus-5-5',
   },
   // Live Redash integration (src/redash.js): pipeline panels on L12 Stats, the
   // per-task Pipeline tab, the copilot's redash_query tool, and the in-app query
