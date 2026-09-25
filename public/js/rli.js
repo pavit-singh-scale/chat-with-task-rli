@@ -74,23 +74,17 @@ export function createRli({ bucket, taskId, onCrit, onSpec, onOpenDoc }) {
       ),
       el('div', { class: 'rli-sum__stats' },
         gateStat(t, 'golden'), gateStat(t, 'ad1'), gateStat(t, 'ad2'),
-        el('div', { class: `rli-stat is-${t.criteria.length < 40 ? 'bad' : 'ok'}` },
-          el('div', { class: 'rli-stat__k' }, 'Criteria'),
-          el('div', { class: 'rli-stat__v' }, String(t.criteria.length)),
-          el('div', { class: 'rli-stat__s' }, `${mix?.negatives || 0} penalties`)),
         mix ? el('div', { class: `rli-stat rli-stat--mix is-${mixCheck.status === 'fail' ? 'bad' : mixCheck.status === 'warn' ? 'warn' : 'ok'}`, title: `Format ${mix.format}% · Brief ${mix.brief}% · Quality ${mix.quality}% of positive weight (target 5 / 30 / 65)` },
           el('div', { class: 'rli-stat__k' }, 'Weight mix'),
           el('div', { class: 'rli-stat__v' }, `${mix.quality}`, el('small', {}, '% quality')),
           el('div', { class: 'rli-minimix' }, mixSeg('format', mix.format), mixSeg('brief', mix.brief), mixSeg('quality', mix.quality), mix.other ? mixSeg('other', mix.other) : null, el('b', {}))) : null,
-        el('button', { type: 'button', class: `rli-stat rli-stat--checks is-${n('fail') ? 'bad' : n('warn') ? 'warn' : 'ok'}`, onclick: onChecks },
-          el('div', { class: 'rli-stat__k' }, 'Auto-checks'),
-          el('div', { class: 'rli-stat__v' }, n('fail') ? String(n('fail')) : '✓', n('fail') ? el('small', {}, n('fail') > 1 ? ' fails' : ' fail') : null),
-          el('div', { class: 'rli-stat__s' }, fails.length ? fails.map((c) => c.label.split(' (')[0].split(':')[0]).join(' · ') : n('warn') ? `${n('warn')} to check` : 'all clear')),
       ),
     );
   }
 
   // ---------- Brief ----------
+  // The brief is the thing being read, so it gets a centred reading column;
+  // the reference files follow as one uniform gallery underneath.
   async function buildBrief() {
     const t = await load();
     const paths = t.checks.find((c) => c.id === 'paths')?.paths;
@@ -99,23 +93,24 @@ export function createRli({ bucket, taskId, onCrit, onSpec, onOpenDoc }) {
       ? t.briefSections.map((s) => {
         const body = el('div', { class: 'cb-prose' });
         body.innerHTML = renderMarkdown(s.body || '_(empty)_');
-        return el('section', { class: 'rli-brief__sec' }, el('div', { class: 'cb-label' }, s.heading), body);
+        return el('section', { class: 'rli-brief__sec' }, el('h4', {}, s.heading), body);
       })
       : [el('div', { class: 'callout warn' }, 'This record has no brief.')];
     const inputs = t.files.input;
+    const visual = inputs.filter((f) => ['image', 'video'].includes(f.kind));
+    const other = inputs.filter((f) => !['image', 'video'].includes(f.kind));
     return el('div', { class: 'rli rli-brief' },
-      el('div', { class: 'rli-brief__grid' },
-        el('div', { class: 'rli-brief__main' }, ...sections,
-          el('p', { class: 'hint-line' }, 'This is the brief as exported. If it was rewritten at the brief-sufficiency step, the contributor\'s original may differ — the models may have worked from either.')),
-        el('aside', { class: 'rli-brief__side' },
-          el('div', { class: 'cb-label' }, `Input files · ${inputs.length}${t.inputsDeclared != null && t.inputsDeclared !== inputs.length ? ` (record says ${t.inputsDeclared})` : ''}`),
-          inputs.length
-            ? el('div', { class: 'rli-inputs' }, inputs.map((f) => fileTile(t, f, { mark: unlisted.has(f.rel) ? 'not in brief' : null, list: inputs })))
-            : el('div', { class: 'hint-line' }, 'No input files.'),
-          paths?.problems?.length
-            ? el('div', { class: 'rli-probs' }, paths.problems.map((p) => el('div', { class: `rli-prob is-${p.sev}` }, p.text)))
-            : null,
-        ),
+      el('article', { class: 'rli-brief__doc' }, ...sections),
+      el('section', { class: 'rli-refs' },
+        el('header', { class: 'rli-refs__head' },
+          el('h4', {}, 'Reference files'),
+          el('span', { class: 'rli-refs__n' }, `${inputs.length}${t.inputsDeclared != null && t.inputsDeclared !== inputs.length ? ` · record says ${t.inputsDeclared}` : ''}`),
+          unlisted.size ? el('span', { class: 'rli-refs__flag' }, `${unlisted.size} not named in the brief`) : null,
+          paths?.problems?.length ? el('span', { class: 'rli-refs__flag is-fail' }, `${paths.problems.length} brief path${paths.problems.length > 1 ? 's' : ''} don't resolve`) : null),
+        paths?.problems?.length ? el('div', { class: 'rli-probs' }, paths.problems.map((p) => el('div', { class: `rli-prob is-${p.sev}` }, p.text))) : null,
+        inputs.length ? null : el('div', { class: 'hint-line' }, 'No input files.'),
+        visual.length ? el('div', { class: 'rli-gallery' }, visual.map((f) => fileTile(t, f, { mark: unlisted.has(f.rel) ? 'not in brief' : null, list: inputs }))) : null,
+        other.length ? fileList(t, other, inputs, unlisted) : null,
       ),
     );
   }
@@ -136,33 +131,64 @@ export function createRli({ bucket, taskId, onCrit, onSpec, onOpenDoc }) {
     return ({ video: '▶', audio: '♪', pdf: '▤', model3d: '⬡', cad: '⌂', design: '✎', doc: '▤', sheet: '▦', text: '⟨⟩', archive: '⧉' })[kind] || '•';
   }
 
+  // Non-visual files read better as a list than as big glyph tiles.
+  function fileList(t, files, list, unlisted = new Set()) {
+    return el('div', { class: 'rli-flist' }, files.map((f) => el('button', { type: 'button', class: 'rli-frow', onclick: () => openViewer(t, f, list), title: f.rel },
+      el('span', { class: `rli-ext k-${f.kind}` }, (f.name.split('.').pop() || '').toUpperCase().slice(0, 4)),
+      el('span', { class: 'rli-frow__name' }, f.rel),
+      unlisted.has(f.rel) ? el('span', { class: 'rli-tile__mark rli-tile__mark--inline' }, 'not in brief') : null,
+      el('span', { class: 'rli-frow__size' }, fmtSize(f.size)))));
+  }
+
+  const MODEL_PREF = ['glb', 'gltf', 'obj', 'fbx', 'stl', 'ply'];
+  function primaryModel(files) {
+    const models = files.filter((f) => f.kind === 'model3d');
+    return models.sort((a, b) => MODEL_PREF.indexOf(a.name.split('.').pop().toLowerCase()) - MODEL_PREF.indexOf(b.name.split('.').pop().toLowerCase()))[0] || null;
+  }
+
+  // One side (RD / AD1 / AD2 / inputs): the 3D model leads — it's what these
+  // tasks are graded on — then renders, then media, then everything else.
   function sideColumn(t, side, { dense = false } = {}) {
     const files = t.files[side] || [];
-    const byKind = new Map();
-    for (const f of files) {
-      if (!byKind.has(f.kind)) byKind.set(f.kind, []);
-      byKind.get(f.kind).push(f);
-    }
+    const of = (k) => files.filter((f) => f.kind === k);
+    const model = primaryModel(files);
+    const images = of('image');
+    const videos = of('video');
+    const audio = of('audio');
+    const pdfs = of('pdf');
+    const rest = files.filter((f) => !['image', 'video', 'audio', 'pdf'].includes(f.kind));
     const v = t.scores?.[side]?.percentage;
+    const group = (label, n, node) => el('div', { class: 'rli-group' }, el('div', { class: 'rli-group__lbl' }, label, el('span', {}, String(n))), node);
     return el('section', { class: `rli-col side-${side}` },
       el('header', { class: 'rli-col__head' },
         el('b', {}, SIDE_LABEL[side]),
         el('span', { class: 'rli-col__model' }, side === 'input' ? SIDE_LONG.input : modelLine(t, side)),
         el('span', { class: 'spacer' }),
-        side !== 'input' && v != null ? el('span', { class: 'rli-col__pct' }, pct(v)) : null,
-        el('span', { class: 'rli-col__count' }, `${files.length} file${files.length === 1 ? '' : 's'}`),
-      ),
+        side !== 'input' && v != null ? el('span', { class: 'rli-col__pct' }, pct(v)) : null),
       files.length ? null : el('div', { class: 'hint-line rli-col__empty' }, 'No files delivered.'),
-      ...KIND_ORDER.filter((k) => byKind.has(k)).map((k) =>
-        el('div', { class: 'rli-group' },
-          el('div', { class: 'rli-group__lbl' }, `${KIND_LABEL[k]} · ${byKind.get(k).length}`),
-          k === 'audio'
-            ? el('div', { class: 'rli-audio' }, byKind.get(k).map((f) => el('div', { class: 'rli-audio__row' },
-              el('span', { class: 'rli-audio__name', title: f.rel }, f.rel),
-              el('audio', { controls: '', preload: 'none', src: rawUrl(f.path) }))))
-            : el('div', { class: `rli-tiles${dense ? ' rli-tiles--dense' : ''}` }, byKind.get(k).map((f) => fileTile(t, f, { list: files }))),
-        )),
+      model ? el('div', { class: 'rli-hero' },
+        el('div', { class: 'rli-hero__stage' }, lazyModel(model)),
+        el('button', { type: 'button', class: 'rli-hero__open', onclick: () => openViewer(t, model, files) }, `${model.name} ↗`)) : null,
+      images.length ? group('Renders & images', images.length, el('div', { class: `rli-tiles${dense ? ' rli-tiles--dense' : ''}` }, images.map((f) => fileTile(t, f, { list: files })))) : null,
+      videos.length ? group('Video', videos.length, el('div', { class: 'rli-vids' }, videos.map((f) => el('div', { class: 'rli-vid' },
+        el('video', { src: rawUrl(f.path), controls: '', preload: 'metadata' }),
+        el('button', { type: 'button', class: 'rli-frow__name', onclick: () => openViewer(t, f, files) }, f.rel))))) : null,
+      audio.length ? group('Audio', audio.length, el('div', { class: 'rli-audio' }, audio.map((f) => el('div', { class: 'rli-audio__row' },
+        el('span', { class: 'rli-audio__name', title: f.rel }, f.rel),
+        el('audio', { controls: '', preload: 'none', src: rawUrl(f.path) }))))) : null,
+      pdfs.length ? group('PDF', pdfs.length, fileList(t, pdfs, files)) : null,
+      rest.length ? group('Source & other files', rest.length, fileList(t, rest, files)) : null,
     );
+  }
+
+  // Inline 3D viewer that only boots when scrolled into view.
+  function lazyModel(f) {
+    const holder = el('div', { class: 'rli-lazy3d' }, el('span', {}, 'Loading 3D…'));
+    const io = new IntersectionObserver((es) => {
+      if (es.some((e) => e.isIntersecting)) { io.disconnect(); holder.replaceChildren(model3d(f, true)); }
+    });
+    requestAnimationFrame(() => io.observe(holder));
+    return holder;
   }
 
   let delivMode = 'compare';
@@ -197,14 +223,19 @@ export function createRli({ bucket, taskId, onCrit, onSpec, onOpenDoc }) {
 
   // ---------- lightbox viewer ----------
   let lb = null;
-  function closeViewer() { lb?.remove(); lb = null; document.removeEventListener('keydown', onKey); }
+  function closeViewer() { lb?.remove(); lb = null; lbState = null; document.removeEventListener('keydown', onKey, true); }
   let lbState = null;
   function onKey(e) {
-    if (!lbState) return;
-    if (e.key === 'Escape') closeViewer();
-    else if (e.key === 'ArrowRight') step(1);
-    else if (e.key === 'ArrowLeft') step(-1);
-    else if (e.key.toLowerCase() === 'c') toggleCompare();
+    if (!lbState || !lb) return;
+    if (e.target.closest?.('input, textarea')) return;
+    const k = e.key;
+    if (k === 'Escape') closeViewer();
+    else if (k === 'ArrowRight' || k === 'ArrowDown') step(1);
+    else if (k === 'ArrowLeft' || k === 'ArrowUp') step(-1);
+    else if (k.toLowerCase() === 'c') toggleCompare();
+    else return;
+    e.preventDefault();
+    e.stopPropagation();
   }
   function step(d) {
     const { list, i } = lbState;
@@ -217,9 +248,13 @@ export function createRli({ bucket, taskId, onCrit, onSpec, onOpenDoc }) {
   function openViewer(t, f, list) {
     closeViewer();
     lbState = { t, list, i: Math.max(0, list.findIndex((x) => x.path === f.path)), compare: false };
-    lb = el('div', { class: 'rli-lb', onclick: (e) => { if (e.target === lb) closeViewer(); } });
+    // Any click that lands on empty backdrop — not on the media or a control — closes.
+    lb = el('div', { class: 'rli-lb', onclick: (e) => {
+      if (e.target.closest('img, video, audio, iframe, canvas, pre, button, a, .rli-media--none, .rli-lb__bar, .rli-3d__tools')) return;
+      closeViewer();
+    } });
     document.body.append(lb);
-    document.addEventListener('keydown', onKey);
+    document.addEventListener('keydown', onKey, true);
     renderViewer();
   }
 
@@ -253,11 +288,11 @@ export function createRli({ bucket, taskId, onCrit, onSpec, onOpenDoc }) {
         el('span', { class: 'spacer' }),
         side !== 'input' ? el('button', { type: 'button', class: `btn btn--ghost${compare ? ' is-on' : ''}`, onclick: toggleCompare }, compare ? 'Single view' : 'Compare RD · AD1 · AD2') : null,
         el('a', { class: 'btn btn--ghost', href: rawUrl(f.path, true) }, 'Download'),
-        el('button', { type: 'button', class: 'btn btn--ghost', onclick: () => step(-1) }, '←'),
-        el('button', { type: 'button', class: 'btn btn--ghost', onclick: () => step(1) }, '→'),
         el('button', { type: 'button', class: 'btn btn--ghost', onclick: closeViewer }, '✕'),
       ),
       stage,
+      list.length > 1 ? el('button', { type: 'button', class: 'rli-lb__nav is-prev', title: 'Previous (←)', onclick: () => step(-1) }, '‹') : null,
+      list.length > 1 ? el('button', { type: 'button', class: 'rli-lb__nav is-next', title: 'Next (→)', onclick: () => step(1) }, '›') : null,
     );
   }
 
@@ -526,22 +561,19 @@ export function createRli({ bucket, taskId, onCrit, onSpec, onOpenDoc }) {
     );
   }
 
-  // ---------- Audit (checks + auditor dimensions + docs) ----------
-  async function buildAudit(specDims = [], docs = {}) {
+  // ---------- auto-check panel, shown at the top of Review ----------
+  async function checksPanel() {
     const t = await load();
-    const auto = new Set(t.checks.map((c) => c.dim).filter(Boolean));
-    const human = specDims.filter((d) => !auto.has(d.key));
     const order = { fail: 0, warn: 1, info: 2 };
     const open = t.checks.filter((c) => c.status in order).sort((a, b) => order[a.status] - order[b.status]);
     const passed = t.checks.filter((c) => c.status === 'pass');
-    const na = t.checks.filter((c) => c.status === 'na');
     const row = (c) => {
       const more = c.detail || c.note || c.evidence?.length;
-      const detail = more ? el('div', { class: 'rli-row__more', hidden: c.status === 'fail' ? null : '' },
+      const detail = more ? el('div', { class: 'rli-row__more' },
         c.detail ? el('div', { class: 'rli-row__detail' }, c.detail) : null,
         c.note ? el('div', { class: 'rli-row__note' }, c.note) : null,
         c.evidence?.length ? el('div', { class: 'rli-row__ev' }, c.evidence.slice(0, 24).map(critChip)) : null) : null;
-      if (detail && c.status === 'fail') detail.removeAttribute('hidden');
+      if (detail && c.status !== 'fail') detail.hidden = true;
       return el('div', { class: `rli-row is-${c.status}` },
         el('button', { type: 'button', class: 'rli-row__main', onclick: () => { if (detail) detail.hidden = !detail.hidden; } },
           el('span', { class: `rli-dot is-${c.status}` }),
@@ -551,28 +583,12 @@ export function createRli({ bucket, taskId, onCrit, onSpec, onOpenDoc }) {
           more ? el('span', { class: 'rli-row__chev' }, '▾') : null),
         detail);
     };
-    const docCard = (key, label, blurb) => el('button', { type: 'button', class: `rli-doc${docs[key] ? ' is-ready' : ''}`, onclick: () => onOpenDoc(key) },
-      el('b', {}, label),
-      el('span', {}, docs[key] ? 'Open' : 'Not generated yet'),
-      el('p', {}, blurb));
-    return el('div', { class: 'rli rli-audit' },
-      el('section', { class: 'rli-sec' },
-        el('header', { class: 'rli-sec__head' }, el('h3', {}, 'Automated checks'), el('span', { class: 'hint-line' }, 'decided from the record alone')),
-        open.length ? el('div', { class: 'rli-rows' }, open.map(row)) : el('div', { class: 'rli-allclear' }, 'Nothing flagged.'),
-        passed.length || na.length ? el('div', { class: 'rli-passline' },
-          el('span', { class: 'rli-passline__lbl' }, `${passed.length} passed`),
-          passed.map((c) => el('button', { type: 'button', class: 'rli-passchip', title: c.summary, onclick: () => onSpec(c.dim) }, '✓ ', c.label.split(' (')[0])),
-          na.map((c) => el('span', { class: 'rli-passchip is-na', title: c.summary }, `– ${c.label} (n/a)`))) : null),
-      el('section', { class: 'rli-sec' },
-        el('header', { class: 'rli-sec__head' }, el('h3', {}, 'Auditor dimensions'), el('span', { class: 'hint-line' }, `${human.length} need eyes on the files and the rubric`)),
-        el('div', { class: 'rli-dims' }, human.map((d) => el('button', { type: 'button', class: 'rli-dim', onclick: () => onSpec(d.key), title: d.description?.slice(0, 300) || '' },
-          el('span', { class: 'rli-dim__k' }, d.key), el('span', { class: 'rli-dim__n' }, d.name), el('span', { class: 'rli-dim__c' }, d.category))))),
-      el('section', { class: 'rli-sec' },
-        el('header', { class: 'rli-sec__head' }, el('h3', {}, 'Reports')),
-        el('div', { class: 'rli-docs' },
-          docCard('review', 'Review', 'Findings per spec dimension, each with the evidence that decides it.'),
-          docCard('remediation', 'Remediation', 'The fix list for the contributor, with approve / edit / deny on each fix.'))),
-    );
+    return el('section', { class: 'rli-autoqc' },
+      el('header', { class: 'rli-sec__head' }, el('h3', {}, 'Auto-checks'), el('span', { class: 'hint-line' }, 'spec dimensions the record alone can decide')),
+      open.length ? el('div', { class: 'rli-rows' }, open.map(row)) : null,
+      passed.length ? el('div', { class: 'rli-passline' },
+        el('span', { class: 'rli-passline__lbl' }, `${passed.length} passed`),
+        passed.map((c) => el('button', { type: 'button', class: 'rli-passchip', title: c.summary, onclick: () => onSpec(c.dim) }, '✓ ', c.label.split(' (')[0]))) : null);
   }
 
   function flashCrit(n) {
@@ -585,5 +601,5 @@ export function createRli({ bucket, taskId, onCrit, onSpec, onOpenDoc }) {
     return true;
   }
 
-  return { load, summaryBar, buildBrief, buildDeliverables, buildRubric, buildPreference, buildAudit, flashCrit, resetFilter: () => { rubricFilter.q = ''; rubricFilter.cat = ''; rubricFilter.only = ''; } };
+  return { load, summaryBar, buildBrief, buildDeliverables, buildRubric, buildPreference, checksPanel, flashCrit, resetFilter: () => { rubricFilter.q = ''; rubricFilter.cat = ''; rubricFilter.only = ''; } };
 }

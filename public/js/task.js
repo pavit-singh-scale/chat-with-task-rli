@@ -172,17 +172,17 @@ const rli = createRli({
   bucket, taskId,
   onCrit: (n) => showRliView('rubric').then(() => rli.flashCrit(n)),
   onSpec: (key) => showQcSpec(key),
-  onOpenDoc: (key) => openDoc(DOCS.find((d) => d.key === key)).then(() => setActiveTab('audit')),
 });
 const RLI_TABS = [
   { key: 'brief',        label: 'Brief',        open: () => showRliView('brief') },
   { key: 'deliverables', label: 'Deliverables', open: () => showRliView('deliverables') },
   { key: 'rubric',       label: 'Rubric',       open: () => showRliView('rubric') },
   { key: 'preference',   label: 'Preference',   open: () => showRliView('preference') },
-  { key: 'audit',        label: 'Audit',        open: () => showRliView('audit') },
+  { key: 'review',       label: 'Review',       open: () => openDoc(DOCS.find((d) => d.key === 'review')) },
+  { key: 'remediation',  label: 'Remediation',  open: () => openDoc(DOCS.find((d) => d.key === 'remediation')) },
   { key: 'qcspec',       label: 'QC spec',      open: () => showQcSpec() },
 ];
-const RLI_LABEL = { brief: 'Brief', deliverables: 'Deliverables', rubric: 'Rubric', preference: 'Preference', audit: 'Audit' };
+const RLI_LABEL = { brief: 'Brief', deliverables: 'Deliverables', rubric: 'Rubric', preference: 'Preference' };
 let rliData = null;
 async function showRliView(which) {
   setActiveTab(which);
@@ -194,7 +194,6 @@ async function showRliView(which) {
     deliverables: rli.buildDeliverables,
     rubric: rli.buildRubric,
     preference: rli.buildPreference,
-    audit: async () => { rubricPromise ||= api('/spec/rubric'); const { dimensions } = await rubricPromise; return rli.buildAudit(dimensions, { review: meta?.hasReview, remediation: meta?.hasRemediation }); },
   }[which];
   const key = `rli-${which}`;
   if (!viewCache.has(key)) {
@@ -223,7 +222,7 @@ function openTab(key) {
 function tabBadge(key) {
   if (meta?.kind === 'rli') {
     if (key === 'rubric' && rliData) return String(rliData.criteria.length);
-    if (key === 'audit' && rliData) { const f = rliData.checks.filter((c) => c.status === 'fail').length; return f ? String(f) : null; }
+    if (key === 'review' && rliData) { const f = rliData.checks.filter((c) => c.status === 'fail').length; return f ? String(f) : null; }
     if (key === 'deliverables' && rliData) return String(rliData.files.golden.length + rliData.files.ad1.length + rliData.files.ad2.length);
   }
   if (key === 'review' && meta?.findingCount) return String(meta.findingCount);
@@ -328,7 +327,7 @@ async function renderTaskStrip() {
 
   if (meta.kind === 'rli' && rliData) {
     strip.classList.add('strip--rli');
-    mount(strip, rli.summaryBar(rliData, { queue, onChecks: () => openTab('audit') }),
+    mount(strip, rli.summaryBar(rliData, { queue }),
       queue?.next ? el('a', { class: 'rli-sum__next', href: `${window.__base__ || ''}/task/${queue.next.bucket}/${queue.next.id}` }, 'Next task →') : null);
     return;
   }
@@ -420,6 +419,7 @@ async function openDoc(doc, navNode, { refresh = false } = {}) {
           me.role === 'admin' ? `No ${doc.file} yet — generate it from the button above.` : `${doc.label} hasn't been generated for this task yet.`));
       if (doc.key === 'remediation') await appendChecklistSections(content);
     }
+    if (doc.key === 'review' && meta?.kind === 'rli') content = el('div', {}, await rli.checksPanel(), content);
     mountView(`doc:${doc.key}`, () => content, { refresh: true });
   } else {
     mountView(`doc:${doc.key}`, () => null);
@@ -2809,7 +2809,7 @@ const params = new URLSearchParams(location.search);
 if (params.get('traj')) {
   showTrajectory(params.get('traj'), params.has('msg') ? Number(params.get('msg')) : null);
 } else if (meta?.kind === 'rli') {
-  openTab(params.get('tab') === 'checks' ? 'audit' : params.get('tab') || 'brief');
+  openTab(params.get('tab') || 'brief');
 } else if (hasReview) {
   openTab('review');
 } else {

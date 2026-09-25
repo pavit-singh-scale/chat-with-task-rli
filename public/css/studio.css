@@ -3710,3 +3710,58 @@ button.rli-critchip:hover, button.rli-spec:hover { border-color: var(--accent); 
 .rli-brief__side .rli-tile__face { aspect-ratio: 1; }
 .rli-brief__side .rli-tile__name { font-size: 10px; padding: 0 5px 5px; }
 .rli-brief__side { max-height: calc(100vh - 260px); overflow: auto; }
+
+/* ---- RLI round 2: focused brief, 3D-first deliverables, lightbox nav ---- */
+.rli-brief__doc { max-width: 760px; margin: 6px auto 0; }
+.rli-brief__sec { margin-bottom: 20px; }
+.rli-brief__sec h4 { margin: 0 0 6px; font-size: 11px; font-weight: 700; letter-spacing: .09em; text-transform: uppercase; color: var(--text-3); }
+.rli-brief__doc .cb-prose { font-size: 14.5px; line-height: 1.7; color: var(--text); }
+.rli-brief__doc .cb-prose li { margin: 3px 0; }
+.rli-refs { max-width: 1100px; margin: 34px auto 0; padding-top: 22px; border-top: 1px solid var(--border); }
+.rli-refs__head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; }
+.rli-refs__head h4 { margin: 0; font-size: 13px; font-weight: 650; color: var(--text); }
+.rli-refs__n { font-size: 12px; color: var(--text-3); }
+.rli-refs__flag { font-size: 11px; font-weight: 600; padding: 1px 8px; border-radius: var(--r-tag); color: var(--warn); background: var(--warn-bg); }
+.rli-refs__flag.is-fail { color: var(--fail); background: var(--fail-bg); }
+.rli-refs .rli-probs { margin: 0 0 12px; }
+.rli-gallery { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
+.rli-gallery .rli-tile__face { aspect-ratio: 1; }
+.rli-gallery .rli-tile__face img { object-fit: cover; }
+
+.rli-flist { display: grid; border: 1px solid var(--border); border-radius: var(--r-md); overflow: hidden; margin-top: 10px; }
+.rli-group .rli-flist { margin-top: 0; }
+.rli-frow { display: grid; grid-template-columns: 44px minmax(0, 1fr) auto auto; gap: 10px; align-items: center; padding: 6px 10px; background: var(--bg-sunken); border: 0; border-top: 1px solid var(--border); text-align: left; font-family: inherit; color: var(--text-2); cursor: pointer; }
+.rli-frow:first-child { border-top: 0; }
+.rli-frow:hover { background: var(--surface-hover); color: var(--text); }
+.rli-frow__name { font-family: var(--mono); font-size: 11.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; background: none; border: 0; padding: 0; color: inherit; text-align: left; cursor: pointer; }
+.rli-frow__size { font-size: 11px; color: var(--text-faint); font-variant-numeric: tabular-nums; }
+.rli-ext { font-family: var(--mono); font-size: 9.5px; font-weight: 700; text-align: center; padding: 2px 0; border-radius: var(--r-tag); color: var(--text-3); background: var(--muted-bg); }
+.rli-ext.k-model3d, .rli-ext.k-cad { color: var(--teal); background: color-mix(in srgb, var(--teal) 14%, transparent); }
+.rli-ext.k-pdf { color: var(--red); background: var(--fail-bg); }
+.rli-ext.k-design { color: var(--purple); background: color-mix(in srgb, var(--purple) 14%, transparent); }
+.rli-tile__mark--inline { position: static; }
+
+.rli-col__head { margin-bottom: 10px; }
+.rli-group__lbl { display: flex; gap: 6px; align-items: baseline; }
+.rli-group__lbl span { color: var(--text-faint); font-weight: 600; letter-spacing: 0; }
+.rli-hero { border: 1px solid var(--border); border-radius: var(--r-md); overflow: hidden; background: var(--bg); margin-bottom: 4px; }
+.rli-hero__stage { height: 300px; }
+.rli-cols--one .rli-hero__stage { height: 480px; }
+.rli-lazy3d { width: 100%; height: 100%; display: grid; place-items: center; color: var(--text-faint); font-size: 12px; }
+.rli-lazy3d > .rli-3d { width: 100%; height: 100%; min-height: 0; }
+.rli-hero__open { display: block; width: 100%; padding: 6px 10px; border: 0; border-top: 1px solid var(--border); background: var(--surface); font-family: var(--mono); font-size: 11px; color: var(--text-2); text-align: left; cursor: pointer; }
+.rli-hero__open:hover { color: var(--accent); }
+.rli-hero .rli-3d__status { font-size: 10.5px; left: 8px; bottom: 8px; padding: 2px 6px; }
+.rli-hero .rli-3d__tools { top: 8px; right: 8px; }
+.rli-hero .rli-3d__tools .btn { font-size: 11px; padding: 3px 8px; }
+.rli-vids { display: grid; gap: 8px; }
+.rli-vid { display: grid; gap: 4px; }
+.rli-vid video { width: 100%; border-radius: var(--r-md); background: #000; max-height: 260px; }
+
+.rli-lb__nav { position: fixed; top: 50%; transform: translateY(-50%); z-index: 2; width: 52px; height: 88px; border: 0; border-radius: var(--r-md); background: rgba(255,255,255,.06); color: #fff; font-size: 40px; line-height: 1; cursor: pointer; }
+.rli-lb__nav:hover { background: rgba(255,255,255,.14); }
+.rli-lb__nav.is-prev { left: 14px; } .rli-lb__nav.is-next { right: 14px; }
+.rli-lb__stage { padding: 18px 80px; }
+
+.rli-autoqc { margin-bottom: 26px; padding-bottom: 20px; border-bottom: 1px solid var(--border); }
+.doc__regen + div > .rli-autoqc, .doc__regen + .rli-autoqc { margin-top: 18px; } .rli-autoqc { max-width: 1100px; }
