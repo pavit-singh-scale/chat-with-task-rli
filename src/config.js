@@ -49,7 +49,8 @@ export const config = {
     // REDASH_DATA_SOURCE_ID (30) — the ACC pipeline queries live on 22.
     dataSourceId: Number(process.env.REDASH_ANALYTICS_DATA_SOURCE_ID || 22),
     // ACC project whose pipeline the dashboards describe.
-    projectId: process.env.ACC_PROJECT_ID || '69979ab5a4b6d80af7b7d1c8',
+    // RLI Custom (PKJA). ACC_PROJECT_ID is still honoured as a fallback.
+    projectId: process.env.RLI_CUSTOM_PROJECT_ID || process.env.ACC_PROJECT_ID || '6a989ef00d42ba8e15aaac6c',
     cacheTtlMs: Number(process.env.REDASH_CACHE_TTL_SECONDS || 300) * 1000,
     pollIntervalMs: Number(process.env.REDASH_POLL_INTERVAL_MS || 1500),
     requestTimeoutMs: Number(process.env.REDASH_REQUEST_TIMEOUT_MS || 30_000),

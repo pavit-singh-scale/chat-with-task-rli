@@ -840,6 +840,9 @@ api.get('/task/:bucket/:id/chat', wrap(async (req, res) => {
   const out = [];
   let lastUser = '';
   for (const m of history) {
+    // The loop's note that artifact images were shown to the model is context for
+    // the model, not something the reviewer typed — keep it out of the chat.
+    if (m.role === 'user' && typeof m.content === 'string' && /^\[\d+ artifact image\(s\) were shown to the model/.test(m.content)) continue;
     if (m.role === 'user') { lastUser = m.content; out.push({ role: 'user', content: m.content }); continue; }
     if (m.role === 'assistant' && m.content) { out.push({ role: 'assistant', content: m.content }); continue; }
     if (m.role === 'assistant' && m.tool_calls?.length) {
