@@ -3831,3 +3831,11 @@ button.rli-critchip:hover, button.rli-spec:hover { border-color: var(--accent); 
 div.rli-hero__open { cursor: default; color: var(--text-3); }
 .rli-3d__zoom .rli-3d__b { font-size: 15px; font-weight: 600; width: 28px; padding: 2px 0; }
 .rli-lb:fullscreen { background: var(--bg); }
+.rli-cite { display: inline-flex; align-items: center; gap: 3px; padding: 0 6px; border-radius: var(--r-tag); font-size: .92em; font-weight: 600; text-decoration: none; white-space: nowrap; }
+.rli-cite--crit { color: var(--accent); background: var(--accent-bg); font-family: var(--mono); font-size: .86em; }
+.rli-cite--file { color: var(--teal); background: color-mix(in srgb, var(--teal) 14%, transparent); font-family: var(--mono); font-size: .86em; }
+.rli-cite--file::before { content: '▣'; font-size: .8em; }
+.rli-cite--pref { color: var(--orange); background: var(--warn-bg); }
+.rli-cite:hover { filter: brightness(1.15); }
+.rli-just.flash, td.flash { outline: 2px solid var(--yellow); outline-offset: -2px; }
+#copilot-mode[hidden] { display: none; }

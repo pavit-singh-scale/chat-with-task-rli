@@ -18,7 +18,8 @@ import { runAgentLoop } from '../llm.js';
 import { TOOL_DEFS, makeExecutor } from '../tools.js';
 import { generateDoc, taskContext, CITATION_RULES } from '../docgen.js';
 import { QUALITY_CANON, getRubric, saveRubricCsv } from '../spec.js';
-import { readRliIn } from '../rli.js';
+import { readRliIn, isRliTask } from '../rli.js';
+import { RLI_CHAT_PROMPT, RLI_CITATION_RULES, RLI_TOOL_DEFS, rliCanon, rliTaskContext, makeRliExecutor } from '../rli_acey.js';
 import { recordUsage, readUsage, usageCsv } from '../usage.js';
 import { enqueueDocs, jobSummary, statusFor } from '../jobs.js';
 import { startPull, pullStatus, currentDownload } from '../l10.js';
@@ -715,14 +716,19 @@ api.post('/task/:bucket/:id/chat', wrap(async (req, res) => {
   const userMsg = { role: 'user', content: String(req.body.message || '').slice(0, 50_000) };
   if (!userMsg.content) return res.status(400).json({ error: 'message required' });
 
-  const dynamic = req.body.mode === 'dynamic';
-  const system = [CHAT_PROMPT, QUALITY_CANON, CITATION_RULES, dynamic ? GUIDE_RULES : '', taskContext(bucket, id)]
-    .filter(Boolean).join('\n\n');
+  // RLI tasks get their own prompt, canon, citations and tools; ACC is unchanged.
+  // Dynamic guides are ACC-only for now (their anchors are trajectory-based).
+  const rli = isRliTask(dir);
+  const dynamic = !rli && req.body.mode === 'dynamic';
+  const system = rli
+    ? [RLI_CHAT_PROMPT, rliCanon(), RLI_CITATION_RULES, rliTaskContext(dir)].join('\n\n')
+    : [CHAT_PROMPT, QUALITY_CANON, CITATION_RULES, dynamic ? GUIDE_RULES : '', taskContext(bucket, id)]
+      .filter(Boolean).join('\n\n');
   const acc = { prompt_tokens: 0, completion_tokens: 0 };
   const onUsage = (u) => { acc.prompt_tokens += u.prompt_tokens || 0; acc.completion_tokens += u.completion_tokens || 0; };
   // In dynamic mode the model's final answer is a present_guide tool call: validate its anchors
   // against real task data and push the built guide straight to the client.
-  const readExec = makeExecutor(bucket, id);
+  const readExec = rli ? makeRliExecutor(dir) : makeExecutor(bucket, id);
   // Board-writing tools are composed in HERE and nowhere else, so the offline doc
   // generator (which shares TOOL_DEFS) can never mutate task state. Acey acts as
   // the signed-in operator and inherits exactly their permissions.
@@ -745,9 +751,11 @@ api.post('/task/:bucket/:id/chat', wrap(async (req, res) => {
   try {
     const { messages } = await runAgentLoop({
       messages: [{ role: 'system', content: system }, ...history, userMsg],
-      tools: dynamic
-        ? [...TOOL_DEFS, ...ACTION_TOOL_DEFS, PRESENT_GUIDE_TOOL]
-        : [...TOOL_DEFS, ...ACTION_TOOL_DEFS],
+      tools: rli
+        ? [...RLI_TOOL_DEFS, ...ACTION_TOOL_DEFS]
+        : dynamic
+          ? [...TOOL_DEFS, ...ACTION_TOOL_DEFS, PRESENT_GUIDE_TOOL]
+          : [...TOOL_DEFS, ...ACTION_TOOL_DEFS],
       executor,
       onEvent: (e) => sendSSE(res, e),
       maxSteps: 50,

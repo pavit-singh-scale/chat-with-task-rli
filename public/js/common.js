@@ -123,6 +123,22 @@ export function renderMarkdown(md, opts = {}) {
       const pAttr = phrase ? ` data-cb-phrase="${escapeHtml(phrase)}"` : '';
       return `<a class="cb-link" href="#" data-cb-model="${c[1]}"${pAttr}>${shown}</a>`;
     }
+    // RLI anchors: crit://C12[/rd|ad1|ad2] · file://files/<side>/<path> · pref://<pair>/<dim>
+    const cr = /^crit:\/\/C(\d{1,3})(?:\/(rd|ad1|ad2|golden))?$/i.exec(href || '');
+    if (cr) {
+      const shown = hasLabel ? labelHtml : `C${cr[1]}${cr[2] ? ` · ${cr[2].toUpperCase()}` : ''}`;
+      return `<a class="rli-cite rli-cite--crit" href="#" data-crit="${cr[1]}"${cr[2] ? ` data-crit-side="${cr[2].toLowerCase()}"` : ''}>${shown}</a>`;
+    }
+    const fl = /^file:\/\/(files\/[^?#]+)$/.exec(href || '');
+    if (fl) {
+      const shown = hasLabel ? labelHtml : escapeHtml(fl[1].split('/').pop());
+      return `<a class="rli-cite rli-cite--file" href="#" data-rli-file="${escapeHtml(decodeURI(fl[1]))}">${shown}</a>`;
+    }
+    const pf = /^pref:\/\/(rd_vs_ad1|rd_vs_ad2|ad1_vs_ad2)(?:\/([a-z_]+))?$/.exec(href || '');
+    if (pf) {
+      const shown = hasLabel ? labelHtml : pf[1].replace(/_/g, ' ').toUpperCase();
+      return `<a class="rli-cite rli-cite--pref" href="#" data-pref-pair="${pf[1]}"${pf[2] ? ` data-pref-dim="${pf[2]}"` : ''}>${shown}</a>`;
+    }
     const s = /^spec:\/\/([RD]\d{1,2})$/.exec(href || '');
     if (s) {
       const shown = hasLabel ? labelHtml : escapeHtml(s[1]);

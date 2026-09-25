@@ -103,6 +103,12 @@ document.addEventListener('click', (e) => {
     locateRankField(cf.dataset.cbFieldPath);
     return;
   }
+  const rc = e.target.closest('[data-crit]');
+  if (rc) { e.preventDefault(); rli.resetFilter(); viewCache.delete('rli-rubric'); showRliView('rubric').then(() => rli.flashCrit(Number(rc.dataset.crit), rc.dataset.critSide || null)); return; }
+  const rf = e.target.closest('[data-rli-file]');
+  if (rf) { e.preventDefault(); rli.openArtifact(rf.dataset.rliFile); return; }
+  const rp = e.target.closest('[data-pref-pair]');
+  if (rp) { e.preventDefault(); showRliView('preference').then(() => rli.flashPref(rp.dataset.prefPair, rp.dataset.prefDim || null)); return; }
   const s = e.target.closest('[data-spec-key]');
   if (s) {
     e.preventDefault();
@@ -170,7 +176,7 @@ const TABS = [
 // ---------- RLI queue: tasks carrying a task.json get their own tab set ----------
 const rli = createRli({
   bucket, taskId,
-  onCrit: (n) => showRliView('rubric').then(() => rli.flashCrit(n)),
+  onCrit: (n, side) => { rli.resetFilter(); viewCache.delete('rli-rubric'); return showRliView('rubric').then(() => rli.flashCrit(n, side)); },
   onSpec: (key) => showQcSpec(key),
 });
 const RLI_TABS = [
@@ -265,6 +271,9 @@ async function buildSidebar() {
   }
   if (meta.kind === 'rli') {
     TABS.splice(0, TABS.length, ...RLI_TABS);
+    document.getElementById('copilot-mode')?.setAttribute('hidden', '');
+    if (copilotMode === 'dynamic') { copilotMode = 'static'; }
+    refreshChatIntro?.();
     rliData = await rli.load();
     document.getElementById('dl-rank').firstChild.textContent = 'Download task.json ';
     document.querySelector('#verdict-select option[value="GRAMMAR_ONLY"]')?.remove();
@@ -2288,14 +2297,24 @@ const CHAT_SUGGESTIONS = [
 // The 76px bobbing mascot, the hero name card and the aurora behind it are gone:
 // Acey's identity is already in the panel header. What is left is the one thing
 // that helps — what it can do, and four ways in.
+const RLI_SUGGESTIONS = [
+  'Walk me through every auto-check fail and tell me which ones are real.',
+  'Is AD1’s score defensible? Check the verdicts closest to the 70% gate against the renders.',
+  'Which criteria look post-hoc or overfit to one model’s specific flaw?',
+  'Does the golden really pass the heaviest criteria? Look at its files.',
+  'What would a professional in this domain check that the rubric misses?',
+];
 function renderChatIntro() {
-  const chips = CHAT_SUGGESTIONS.map((s) =>
+  const chips = (meta?.kind === 'rli' ? RLI_SUGGESTIONS : CHAT_SUGGESTIONS).map((s) =>
     el('button', {
       type: 'button',
       onclick: () => { chatText.value = s; chatText.focus(); chatText.dispatchEvent(new Event('input')); },
     }, s));
   // The copy used to say "Flip to Dynamic" even while Dynamic was selected.
-  const intro = copilotMode === 'dynamic'
+  const intro = meta?.kind === 'rli'
+    ? ['I know the RLI QC spec cold and I can open this task’s renders, drawings and PDFs to check a verdict against what’s actually there. ',
+       'Every claim I make links to the ', el('b', {}, 'criterion, file or comparison'), ' it rests on.']
+    : copilotMode === 'dynamic'
     ? ['I read both trajectories and cross-check the annotator’s rank.json against what actually ',
        'happened. Ask me anything and I’ll ', el('b', {}, 'walk you through it step by step'),
        ', stopping on each turn, rubric row and rank.json field that matters.']

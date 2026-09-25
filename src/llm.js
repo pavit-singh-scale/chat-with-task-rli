@@ -96,6 +96,12 @@ export async function runAgentLoop({ messages, tools, executor, onEvent, maxStep
     if (msg.content) onEvent?.({ type: 'assistant', content: msg.content, final: !calls.length });
     if (!calls.length) return { messages: added, final: msg.content || '' };
 
+    // Tools may return { content, images: [{ mime, b64, label }] } — the text goes
+    // back as the tool result and the images follow as one user message (the
+    // chat-completions tool role carries text only). Images are sent this turn
+    // and replaced by a text stub in the persisted transcript, so history
+    // never balloons with base64.
+    const pendingImages = [];
     for (const call of calls) {
       let args = {};
       try {
@@ -108,9 +114,26 @@ export async function runAgentLoop({ messages, tools, executor, onEvent, maxStep
       } catch (e) {
         result = `ERROR: ${e.message}`;
       }
+      if (result && typeof result === 'object' && Array.isArray(result.images)) {
+        pendingImages.push(...result.images);
+        result = result.content ?? '';
+      }
       const toolMsg = { role: 'tool', tool_call_id: call.id, content: String(result) };
       transcript.push(toolMsg);
       added.push(toolMsg);
+    }
+    if (pendingImages.length) {
+      transcript.push({
+        role: 'user',
+        content: [
+          { type: 'text', text: 'Images returned by view_artifact, in order:' },
+          ...pendingImages.flatMap((im) => [
+            { type: 'text', text: im.label || 'image' },
+            { type: 'image_url', image_url: { url: `data:${im.mime};base64,${im.b64}` } },
+          ]),
+        ],
+      });
+      added.push({ role: 'user', content: `[${pendingImages.length} artifact image(s) were shown to the model: ${pendingImages.map((im) => im.label).join('; ')}]` });
     }
   }
   // Hit the per-turn step ceiling. Don't dead-end — signal the client so it can

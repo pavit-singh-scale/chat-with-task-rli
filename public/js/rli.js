@@ -763,7 +763,7 @@ export function createRli({ bucket, taskId, onCrit, onSpec, onOpenDoc }) {
               el('div', { class: 'rli-pm__rub' }, `rubric ${pct(sc(c.left))} · ${pct(sc(c.right))}`));
           }))),
         el('tbody', {},
-          dims.map((d) => el('tr', {}, el('th', { class: 'rli-pm__dim' }, d.title), comps.map((c) => cell(c, (c.dimensions || []).find((x) => x.id === d.id))))),
+          dims.map((d) => el('tr', { 'data-dim': d.id }, el('th', { class: 'rli-pm__dim' }, d.title), comps.map((c) => cell(c, (c.dimensions || []).find((x) => x.id === d.id))))),
           el('tr', { class: 'rli-pm__overall' }, el('th', { class: 'rli-pm__dim' }, 'Mean'),
             comps.map((c) => { const m = mean(c); return el('td', { class: `rli-pm__cell is-${m < 3.5 ? 'l' : m > 4.5 ? 'r' : 'm'}` }, el('b', {}, m.toFixed(1)), ' ', el('span', { class: 'rli-pm__lean' }, m < 3.5 ? `favours ${c.left}` : m > 4.5 ? `favours ${c.right}` : 'comparable')); })),
         )),
@@ -811,8 +811,13 @@ export function createRli({ bucket, taskId, onCrit, onSpec, onOpenDoc }) {
         passed.map((c) => el('button', { type: 'button', class: 'rli-passchip', title: c.summary, onclick: () => onSpec(c.dim) }, '✓ ', c.label.split(' (')[0]))) : null);
   }
 
-  function flashCrit(n) {
+  function flashCrit(n, side = null) {
     const row = document.getElementById(`crit-C${n}`);
+    if (row && side) {
+      const idx = { rd: 0, golden: 0, ad1: 1, ad2: 2 }[side];
+      const card = row.querySelectorAll('.rli-just')[idx];
+      if (card) { card.classList.add('flash'); setTimeout(() => card.classList.remove('flash'), 2000); }
+    }
     if (!row) return false;
     row.querySelector('.rli-crit__detail')?.removeAttribute('hidden');
     row.classList.add('is-open', 'flash');
@@ -821,5 +826,27 @@ export function createRli({ bucket, taskId, onCrit, onSpec, onOpenDoc }) {
     return true;
   }
 
-  return { load, summaryBar, buildBrief, buildDeliverables, buildRubric, buildPreference, checksPanel, flashCrit, resetFilter: () => { rubricFilter.q = ''; rubricFilter.cat = ''; rubricFilter.only = ''; } };
+  async function openArtifact(p) {
+    const t = await load();
+    const side = p.split('/')[1];
+    const list = t.files[side] || [];
+    const f = list.find((x) => x.path === p);
+    if (f) openViewer(t, f, list);
+  }
+  function flashPref(pair, dim) {
+    const col = { rd_vs_ad1: 0, rd_vs_ad2: 1, ad1_vs_ad2: 2 }[pair];
+    const table = document.querySelector('.rli-pm');
+    if (!table) return false;
+    let target = table;
+    if (dim) {
+      const row = [...table.querySelectorAll('tbody tr')].find((r) => r.dataset.dim === dim);
+      if (row && col != null) target = row.children[col + 1];
+    }
+    target.classList.add('flash');
+    target.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    setTimeout(() => target.classList.remove('flash'), 1600);
+    return true;
+  }
+
+  return { load, summaryBar, openArtifact, flashPref, buildBrief, buildDeliverables, buildRubric, buildPreference, checksPanel, flashCrit, resetFilter: () => { rubricFilter.q = ''; rubricFilter.cat = ''; rubricFilter.only = ''; } };
 }
