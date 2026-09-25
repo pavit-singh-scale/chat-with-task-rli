@@ -3815,3 +3815,19 @@ button.rli-critchip:hover, button.rli-spec:hover { border-color: var(--accent); 
 .rli-justcard .rli-clamp { -webkit-line-clamp: 2; }
 .rli-justcard .rli-clamp.is-open { -webkit-line-clamp: unset; }
 .rli-justcard > .link { white-space: nowrap; padding-top: 2px; }
+/* verdict marks: status, not buttons */
+.rli-v { width: auto; height: auto; border-radius: 0; background: none !important; font-size: 13px; font-weight: 700; }
+.rli-v.is-good { color: var(--ok); }
+.rli-v.is-bad { color: var(--fail); }
+.rli-v.is-na { color: var(--text-faint); }
+.rli-just__head .rli-v { font-size: 12px; }
+/* full screen affordances */
+.rli-hero__stage { position: relative; }
+.rli-fsbtn { position: absolute; top: 8px; right: 8px; z-index: 3; display: inline-flex; gap: 6px; align-items: center; font-family: inherit; font-size: 11.5px; font-weight: 600;
+  padding: 5px 10px; border-radius: 7px; border: 1px solid var(--border-strong); background: color-mix(in srgb, var(--surface) 90%, transparent); color: var(--text); cursor: pointer; backdrop-filter: blur(6px); }
+.rli-fsbtn:hover { border-color: var(--accent); color: var(--accent); }
+.rli-fsbtn span { font-size: 13px; }
+.rli-hero .rli-3d__status { top: 8px; left: 8px; right: auto; max-width: calc(100% - 130px); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+div.rli-hero__open { cursor: default; color: var(--text-3); }
+.rli-3d__zoom .rli-3d__b { font-size: 15px; font-weight: 600; width: 28px; padding: 2px 0; }
+.rli-lb:fullscreen { background: var(--bg); }

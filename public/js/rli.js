@@ -171,8 +171,9 @@ export function createRli({ bucket, taskId, onCrit, onSpec, onOpenDoc }) {
         side !== 'input' && v != null ? el('span', { class: 'rli-col__pct' }, pct(v)) : null),
       files.length ? null : el('div', { class: 'hint-line rli-col__empty' }, 'No files delivered.'),
       model ? el('div', { class: 'rli-hero' },
-        el('div', { class: 'rli-hero__stage' }, lazyModel(model)),
-        el('button', { type: 'button', class: 'rli-hero__open', onclick: () => openViewer(t, model, files) }, `${model.name}${model.viewPath ? ' · converted to GLB' : ''} ↗`)) : scenePreview(t, files),
+        el('div', { class: 'rli-hero__stage' }, lazyModel(model),
+          el('button', { type: 'button', class: 'rli-fsbtn', title: 'Open full screen', onclick: () => openViewer(t, model, files, { fullscreen: true }) }, el('span', { 'aria-hidden': 'true' }, '⤢'), 'Full screen')),
+        el('div', { class: 'rli-hero__open' }, `${model.name}${model.viewPath ? ' · converted to GLB' : ''}`)) : scenePreview(t, files),
       images.length ? group('Renders & images', images.length, el('div', { class: `rli-tiles${dense ? ' rli-tiles--dense' : ''}` }, images.map((f) => fileTile(t, f, { list: files })))) : null,
       videos.length ? group('Video', videos.length, el('div', { class: 'rli-vids' }, videos.map((f) => el('div', { class: 'rli-vid' },
         el('video', { src: rawUrl(f.path), controls: '', preload: 'metadata' }),
@@ -236,7 +237,7 @@ export function createRli({ bucket, taskId, onCrit, onSpec, onOpenDoc }) {
 
   // ---------- lightbox viewer ----------
   let lb = null;
-  function closeViewer() { lb?.remove(); lb = null; lbState = null; document.removeEventListener('keydown', onKey, true); }
+  function closeViewer() { if (document.fullscreenElement === lb) document.exitFullscreen?.().catch(() => {}); lb?.remove(); lb = null; lbState = null; document.removeEventListener('keydown', onKey, true); }
   let lbState = null;
   function onKey(e) {
     if (!lbState || !lb) return;
@@ -258,7 +259,7 @@ export function createRli({ bucket, taskId, onCrit, onSpec, onOpenDoc }) {
   }
   function toggleCompare() { lbState.compare = !lbState.compare; renderViewer(); }
 
-  function openViewer(t, f, list) {
+  function openViewer(t, f, list, { fullscreen = false } = {}) {
     closeViewer();
     lbState = { t, list, i: Math.max(0, list.findIndex((x) => x.path === f.path)), compare: false };
     // Any click that lands on empty backdrop — not on the media or a control — closes.
@@ -269,6 +270,7 @@ export function createRli({ bucket, taskId, onCrit, onSpec, onOpenDoc }) {
     document.body.append(lb);
     document.addEventListener('keydown', onKey, true);
     renderViewer();
+    if (fullscreen) lb.requestFullscreen?.().catch(() => {});
   }
 
   // Same file on the other sides: exact name, else same position among files of that kind.
@@ -301,6 +303,8 @@ export function createRli({ bucket, taskId, onCrit, onSpec, onOpenDoc }) {
         el('span', { class: 'spacer' }),
         side !== 'input' ? el('button', { type: 'button', class: `btn btn--ghost${compare ? ' is-on' : ''}`, onclick: toggleCompare }, compare ? 'Single view' : 'Compare RD · AD1 · AD2') : null,
         el('a', { class: 'btn btn--ghost', href: rawUrl(f.path, true) }, 'Download'),
+        el('button', { type: 'button', class: 'btn btn--ghost', title: 'Toggle full screen', onclick: () => (document.fullscreenElement ? document.exitFullscreen() : lb.requestFullscreen?.()) },
+          document.fullscreenElement ? '⤡ Exit full screen' : '⤢ Full screen'),
         el('button', { type: 'button', class: 'btn btn--ghost', onclick: closeViewer }, '✕'),
       ),
       stage,
@@ -568,7 +572,18 @@ export function createRli({ bucket, taskId, onCrit, onSpec, onOpenDoc }) {
           ...(compact ? [btn('Top', 'Top view', () => flyTo('top')), btn('Front', 'Front view', () => flyTo('front'))]
             : [['front', 'Front'], ['back', 'Back'], ['left', 'Left'], ['right', 'Right'], ['top', 'Top'], ['iso', 'Iso']].map(([k, l], i) => btn(l, `${l} view (${i + 2})`, () => flyTo(k)))));
         const gridBtn = btn('Grid', 'Toggle ground grid (G)', () => { grid.visible = !grid.visible; gridBtn.classList.toggle('on', grid.visible); });
-        bar.append(views, modeSeg, gridBtn);
+        const zoomBy = (f) => {
+          const toPos = camera.position.clone().sub(controls.target).multiplyScalar(f).add(controls.target);
+          anim = { fromPos: camera.position.clone(), toPos, fromT: controls.target.clone(), toT: controls.target.clone(), t: 0 };
+        };
+        const zoomSeg = el('div', { class: 'rli-3d__seg rli-3d__zoom' },
+          btn('−', 'Zoom out (−)', () => zoomBy(1.4)),
+          btn('+', 'Zoom in (+)', () => zoomBy(1 / 1.4)));
+        bar.append(zoomSeg, views, modeSeg, gridBtn);
+        host.addEventListener('keydown', (e) => {
+          if (e.key === '+' || e.key === '=') { zoomBy(1 / 1.4); e.preventDefault(); e.stopPropagation(); }
+          else if (e.key === '-' || e.key === '_') { zoomBy(1.4); e.preventDefault(); e.stopPropagation(); }
+        });
 
         host.addEventListener('keydown', (e) => {
           const k = e.key.toLowerCase();
