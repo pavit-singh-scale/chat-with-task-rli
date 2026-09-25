@@ -229,7 +229,7 @@ function checkContributors(q) {
       severity: 'p1',
       title: `${int(q.slipping.length)} contributors slipped this window`,
       detail: `Quality dropped ≥0.4, poor-rate climbed ≥10pp, or they fell below the trusted line, `
-        + `over ${q.windowDays} days. These are what fills L1 and L8 next week.`,
+        + `over ${q.windowDays} days. Left alone, their work is what QMs send back at L10 next week.`,
       metric: { value: q.slipping.length, threshold: THRESHOLDS.slippingCount, unit: 'people' },
       link: '/l12.html#q-slipping',
     }));

@@ -28,15 +28,21 @@ const WEEKDAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', '
 // them on an ordinal progress ramp implies a progression that does not exist.
 // They are rolled up separately as `blocked` and shown in their own panel —
 // counted, never dropped.
+// RLI (PKJA) forward path, from the pipeline kickoff in #rli-pkja-pt:
+// L-1 is the brief/input sufficiency check, L0 the rubric + SxS work, L1 a
+// working review stage that sends tasks on to L10 (QM), L12 the delivery pool.
 export const STAGES = [
-  { key: 'l_minus1', label: 'L-1', levels: ['-1'], hint: 'authoring the trajectory' },
-  { key: 'l0',       label: 'L0',  levels: ['0'],  hint: 'first review pass' },
-  { key: 'l10',      label: 'L10', levels: ['10'], hint: 'QM' },
+  { key: 'l_minus1', label: 'L-1', levels: ['-1'], hint: 'brief & input sufficiency check' },
+  { key: 'l0',       label: 'L0',  levels: ['0'],  hint: 'rubrics + SxS' },
+  { key: 'l1',       label: 'L1',  levels: ['1'],  hint: 'review before QM' },
+  { key: 'l10',      label: 'L10', levels: ['10'], hint: 'QM review' },
   { key: 'l12',      label: 'L12', levels: ['12'], hint: 'deliverable' },
 ];
 
-// Blocked / interstitial. Everything not on the forward path.
-export const BLOCKED_LEVELS = ['1', '4', '8'];
+// Off the forward path. L8 is the fresh-task pool awaiting eval (Luis: "my L8
+// layer, fresh tasks nobody has done"); L4 and L11 hold tasks on RLI but their
+// role is unconfirmed — shown, never silently folded into a stage.
+export const BLOCKED_LEVELS = ['4', '8', '11'];
 
 const STAGE_OF = new Map(STAGES.flatMap((s) => s.levels.map((l) => [l, s.key])));
 // Null rather than a fallback band: a level with no band is blocked work, and
@@ -447,10 +453,10 @@ export async function inflightMatchups({ fresh = false } = {}) {
 // Everywhere else on this page they are just two more bars in a pending count,
 // which buries them — the whole L1 lane is smaller than a rounding error against
 // production, and it is also the oldest work in the project.
-const PROBLEM_LANES = [
-  { level: 1, label: 'Content issues', hint: 'wrong, unclear or unusable task content' },
-  { level: 8, label: 'Engineering issues', hint: 'blocked on something the platform has to fix' },
-];
+// ACC's problem lanes were L1 (content) and L8 (engineering). On RLI, L1 is a
+// working review stage and L8 is the fresh pool, so neither is "blocked" and no
+// lane raises a blocked-backlog signal until the RLI team names one.
+const PROBLEM_LANES = [];
 
 export async function blockedBacklog({ fresh = false } = {}) {
   if (!redashEnabled()) return { enabled: false, lanes: [], rows: [] };

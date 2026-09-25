@@ -14,13 +14,19 @@ const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 // a committed default on a public URL is an open door. Unset, local dev seeds the
 // same <name>-cwt26 logins as always.
 const SEED_SUFFIX = process.env.CWT_SEED_SUFFIX || 'cwt26';
+// RLI / PKJA team (#rli-pkja-pt + the QM Follow-Up Tracker, 2026-09-25):
+// leads are admins, QMs are reviewers. Username = first name, lower-case.
+const RLI_ADMINS = ['pavit', 'luis', 'ernesto', 'donnahue', 'lynn'];
+const RLI_REVIEWERS = [
+  // leads / DRIs / ops
+  'erfan', 'gilberto', 'martin', 'valentina', 'guadalupe', 'feyza',
+  // PKJA QMs
+  'burak', 'frida', 'gabriela', 'garrett', 'jose', 'lenny', 'nevena', 'sandra', 'shafin', 'timothee', 'alberto', 'juan',
+];
 const DEFAULT_USERS = [
   { username: 'admin', password: `admin-${SEED_SUFFIX}`, role: 'admin' },
-  { username: 'pavit', password: `pavit-${SEED_SUFFIX}`, role: 'reviewer' },
-  { username: 'ernesto', password: `ernesto-${SEED_SUFFIX}`, role: 'reviewer' },
-  { username: 'christian', password: `christian-${SEED_SUFFIX}`, role: 'reviewer' },
-  { username: 'gilberto', password: `gilberto-${SEED_SUFFIX}`, role: 'reviewer' },
-  { username: 'nishchay', password: `nishchay-${SEED_SUFFIX}`, role: 'reviewer' },
+  ...RLI_ADMINS.map((u) => ({ username: u, password: `${u}-${SEED_SUFFIX}`, role: 'admin' })),
+  ...RLI_REVIEWERS.map((u) => ({ username: u, password: `${u}-${SEED_SUFFIX}`, role: 'reviewer' })),
 ];
 
 function hash(password, salt) {
@@ -37,6 +43,23 @@ function loadUsers() {
     writeJsonAtomic(USERS_PATH, seeded);
   }
   return JSON.parse(fs.readFileSync(USERS_PATH, 'utf8'));
+}
+
+// Add any DEFAULT_USERS missing from an existing users.json (never touches an
+// account that already exists, so changed passwords survive). Returns names added.
+export function syncDefaultUsers({ drop = [] } = {}) {
+  const users = loadUsers().filter((u) => !drop.includes(u.username));
+  const have = new Set(users.map((u) => u.username));
+  const added = [];
+  for (const u of DEFAULT_USERS) {
+    if (have.has(u.username)) continue;
+    const salt = crypto.randomBytes(8).toString('hex');
+    users.push({ username: u.username, role: u.role, salt, hash: hash(u.password, salt) });
+    added.push(u.username);
+  }
+  for (const u of users) { const d = DEFAULT_USERS.find((x) => x.username === u.username); if (d) u.role = d.role; }
+  writeJsonAtomic(USERS_PATH, users);
+  return added;
 }
 
 export function verifyLogin(username, password) {

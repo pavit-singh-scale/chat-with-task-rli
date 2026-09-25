@@ -42,8 +42,7 @@ pending AS (
 SELECT
     review_level,
     CASE review_level
-        WHEN '1'  THEN 'problem'
-        WHEN '8'  THEN 'problem'
+        WHEN '8'  THEN 'pool'          -- RLI: fresh tasks awaiting eval
         WHEN '-1' THEN 'production'
         ELSE           'review'
     END                                                                     AS lane_kind,

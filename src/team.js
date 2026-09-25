@@ -1,4 +1,4 @@
-// Who owns what on ACC, and therefore who a given problem belongs to.
+// Who owns what on RLI (PKJA), and therefore who a given problem belongs to.
 //
 // This replaces the round-robin in buildAssignments(), which rotated chores
 // evenly across four people every week on the assumption that they were
@@ -15,44 +15,44 @@
 export const ESCALATION = 'pavit';
 
 export const TEAM = [
+  // RLI / PKJA leads, from the QM Follow-Up Tracker's People tab and who runs
+  // what in #rli-pkja-pt (2026-09-25). Domains are the routing key for health
+  // signals; ownership here is inferred from the channel — confirm with Pavit
+  // before treating it as policy.
   {
-    username: 'gilberto',
-    name: 'Gilberto Leon',
-    remit: 'Quality',
-    // Domains are the routing key. Everything a check can emit maps to exactly
-    // one of these, across the whole team.
-    domains: ['quality', 'promotions', 'guidelines', 'courses', 'quality_dashboard'],
-    blurb: 'Promotions and demotions, guidelines, courses, the quality dashboard.',
-  },
-  {
-    username: 'nishchay',
-    name: 'Nishchay Sharma',
-    remit: 'Attempter cohort',
-    domains: ['onsites', 'superattempters', 'cohort_growth'],
-    blurb: 'Onsites (29 active, 13 superattempters). Owns the superattempter cohort.',
-  },
-  {
-    username: 'christian',
-    name: 'Christian Rojas',
-    remit: 'Throughput',
-    domains: ['throughput', 'missions', 'win_rate', 'audits', 'team_management', 'pay_efficiency'],
-    blurb: 'Making sure we have TP. Missions, win rate, audits, team management, pay efficiency.',
+    username: 'luis',
+    name: 'Luis Monsalve',
+    remit: 'Pipeline & throughput (STO)',
+    domains: ['throughput', 'missions', 'team_management', 'pay_efficiency', 'onsites', 'cohort_growth', 'superattempters'],
+    blurb: 'Runs the PKJA pipeline: CB allocations and onboarding, daily action items, pay rates, what ships each day.',
   },
   {
     username: 'ernesto',
-    name: 'Ernesto Lozano de la Parra',
-    remit: 'Tooling & QC',
-    domains: ['community', 'tooling', 'linters', 'redash', 'qc', 'dashboards'],
-    blurb: 'Community management, linters, scripts and Redash, QC, dashboards and metric tracking.',
+    name: 'Ernesto Hernandez',
+    remit: 'Delivery & customer quality',
+    domains: ['quality', 'audits', 'qc', 'promotions', 'guidelines'],
+    blurb: 'Owns deliveries and customer feedback: auditing sprints, QC fails, the feedback-driven fixes to rubrics and justifications.',
+  },
+  {
+    username: 'erfan',
+    name: 'Erfan Mansoori',
+    remit: 'Rubrics DRI · data',
+    domains: ['redash', 'dashboards', 'quality_dashboard', 'tooling', 'linters'],
+    blurb: 'RLI Rubrics DRI: the PKJA Redash dashboard, domain/QM distributions, linters and the numbers behind coverage calls.',
+  },
+  {
+    username: 'gilberto',
+    name: 'Gilberto Leon',
+    remit: 'Rubrics DRI · war room',
+    domains: ['courses', 'community'],
+    blurb: 'RLI Rubrics DRI: runs the daily war room and QM alignment on the spec.',
   },
   {
     username: ESCALATION,
     name: 'Pavit Singh',
     remit: 'Evals & escalation',
-    // `evals` is the one domain that routes here directly: tasks sitting at L10
-    // with no eval on the Audit Studio board can only be moved by an eval pass,
-    // and that pass is Pavit's. Everything else still arrives only by
-    // escalation — cross-cutting, above a single owner's line, or unowned.
+    // `evals` routes here directly: tasks at L10 with no eval on the board can
+    // only move with an eval pass. Everything else arrives only by escalation.
     domains: ['evals'],
     blurb: 'Runs the eval passes that move L10 work onto the board, plus high-leverage and cross-domain calls.',
   },

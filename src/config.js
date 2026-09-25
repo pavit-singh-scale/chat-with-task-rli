@@ -63,7 +63,8 @@ export const config = {
   // live here instead of in the page — the copy, the target line on the delivery
   // chart and the readiness maths all read the same two numbers.
   overview: {
-    targetVolume: Number(process.env.OVERVIEW_TARGET_VOLUME || 350),
+    // RLI proposal: 500 tasks in the first 4 weeks, then 250+/week.
+    targetVolume: Number(process.env.OVERVIEW_TARGET_VOLUME || 250),
     // Cadence and greeting are anchored to America/Los_Angeles in src/overview.js:
     // packaging runs Tuesday evening PT, so a UTC clock would call it Wednesday.
     staleDays: Number(process.env.OVERVIEW_STALE_DAYS || 7),
@@ -74,7 +75,7 @@ export const config = {
     // platform owners, committing to or resetting a delivery number), so handing
     // them 24 tasks to triage would be the wrong instruction.
     lead: process.env.OVERVIEW_LEAD || 'pavit',
-    reviewers: (process.env.OVERVIEW_REVIEWERS || 'gilberto,ernesto,nishchay,christian')
+    reviewers: (process.env.OVERVIEW_REVIEWERS || 'burak,frida,gabriela,garrett,jose,lenny,nevena,sandra,shafin,timothee,alberto')
       .split(',').map((s) => s.trim()).filter(Boolean),
   },
   // On-demand pull of tasks from Redash (a whole review level, or an explicit id

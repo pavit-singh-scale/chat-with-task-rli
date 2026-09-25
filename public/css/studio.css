@@ -143,6 +143,7 @@
 :root {
   --viz-stage-1: #184f95;   /* L-1  — least prominent on dark */
   --viz-stage-2: #2a78d6;   /* L0  */
+  --viz-stage-2b: #4b8fe0;  /* L1 (RLI review stage) */
   --viz-stage-3: #6da7ec;   /* L10 */
   --viz-stage-4: #cde2fb;   /* L12  — most prominent on dark */
   --viz-grid: var(--border);
@@ -153,6 +154,7 @@
 :root[data-theme="light"] {
   --viz-stage-1: #86b6ef;   /* L-1  — least prominent on light */
   --viz-stage-2: #2a78d6;
+  --viz-stage-2b: #2468bf;
   --viz-stage-3: #1c5cab;
   --viz-stage-4: #0d366b;   /* L12  — most prominent on light */
   --viz-context: #c2c8d2;
@@ -2781,6 +2783,7 @@ mark.cb-hl.flash { outline: none; animation: cwt-flash 2.4s ease-out; border-rad
 
 .viz-stage--l_minus1   { fill: var(--viz-stage-1); }
 .viz-stage--l0 { fill: var(--viz-stage-2); }
+.viz-stage--l1 { fill: var(--viz-stage-2b); }
 .viz-stage--l10  { fill: var(--viz-stage-3); }
 .viz-stage--l12        { fill: var(--viz-stage-4); }
 /* Blocked levels (L1/L4/L8) are not a step on the forward path, so they get
