@@ -172,18 +172,17 @@ const rli = createRli({
   bucket, taskId,
   onCrit: (n) => showRliView('rubric').then(() => rli.flashCrit(n)),
   onSpec: (key) => showQcSpec(key),
+  onOpenDoc: (key) => openDoc(DOCS.find((d) => d.key === key)).then(() => setActiveTab('audit')),
 });
 const RLI_TABS = [
   { key: 'brief',        label: 'Brief',        open: () => showRliView('brief') },
   { key: 'deliverables', label: 'Deliverables', open: () => showRliView('deliverables') },
   { key: 'rubric',       label: 'Rubric',       open: () => showRliView('rubric') },
   { key: 'preference',   label: 'Preference',   open: () => showRliView('preference') },
-  { key: 'checks',       label: 'Checks',       open: () => showRliView('checks') },
-  { key: 'review',       label: 'Review',       open: () => openDoc(DOCS.find((d) => d.key === 'review')) },
-  { key: 'remediation',  label: 'Remediation',  open: () => openDoc(DOCS.find((d) => d.key === 'remediation')) },
+  { key: 'audit',        label: 'Audit',        open: () => showRliView('audit') },
   { key: 'qcspec',       label: 'QC spec',      open: () => showQcSpec() },
 ];
-const RLI_LABEL = { brief: 'Brief', deliverables: 'Deliverables', rubric: 'Rubric', preference: 'Preference', checks: 'Checks' };
+const RLI_LABEL = { brief: 'Brief', deliverables: 'Deliverables', rubric: 'Rubric', preference: 'Preference', audit: 'Audit' };
 let rliData = null;
 async function showRliView(which) {
   setActiveTab(which);
@@ -195,7 +194,7 @@ async function showRliView(which) {
     deliverables: rli.buildDeliverables,
     rubric: rli.buildRubric,
     preference: rli.buildPreference,
-    checks: async () => { rubricPromise ||= api('/spec/rubric'); const { dimensions } = await rubricPromise; return rli.buildChecks(dimensions); },
+    audit: async () => { rubricPromise ||= api('/spec/rubric'); const { dimensions } = await rubricPromise; return rli.buildAudit(dimensions, { review: meta?.hasReview, remediation: meta?.hasRemediation }); },
   }[which];
   const key = `rli-${which}`;
   if (!viewCache.has(key)) {
@@ -224,7 +223,7 @@ function openTab(key) {
 function tabBadge(key) {
   if (meta?.kind === 'rli') {
     if (key === 'rubric' && rliData) return String(rliData.criteria.length);
-    if (key === 'checks' && rliData) { const f = rliData.checks.filter((c) => c.status === 'fail').length; return f ? `${f} fail` : null; }
+    if (key === 'audit' && rliData) { const f = rliData.checks.filter((c) => c.status === 'fail').length; return f ? String(f) : null; }
     if (key === 'deliverables' && rliData) return String(rliData.files.golden.length + rliData.files.ad1.length + rliData.files.ad2.length);
   }
   if (key === 'review' && meta?.findingCount) return String(meta.findingCount);
@@ -328,20 +327,9 @@ async function renderTaskStrip() {
   } catch { /* strip degrades to findings only */ }
 
   if (meta.kind === 'rli' && rliData) {
-    const n = (st) => rliData.checks.filter((c) => c.status === st).length;
-    const pctS = (k) => (rliData.scores?.[k]?.percentage ?? '—');
-    mount(strip,
-      queue?.n ? el('span', {}, `Task ${queue.n} of ${queue.total} you claimed`) : null,
-      queue?.n ? el('span', { class: 'sep' }, '·') : null,
-      el('span', {}, `RD ${pctS('golden')}% · AD1 ${pctS('ad1')}% · AD2 ${pctS('ad2')}%`),
-      el('span', { class: 'sep' }, '·'),
-      el('a', { href: '#', onclick: (e) => { e.preventDefault(); openTab('checks'); } },
-        el('b', { class: n('fail') ? 'is-warn' : 'is-ok', style: 'font-family:var(--font);font-size:12px' },
-          n('fail') ? `${n('fail')} auto-check fail${n('fail') > 1 ? 's' : ''}` : 'auto-checks clear'),
-        n('warn') ? ` · ${n('warn')} to check` : ''),
-      el('span', { class: 'spacer' }),
-      queue?.next ? el('a', { href: `${window.__base__ || ''}/task/${queue.next.bucket}/${queue.next.id}`, style: 'font-weight:600' }, 'Next task →') : null,
-    );
+    strip.classList.add('strip--rli');
+    mount(strip, rli.summaryBar(rliData, { queue, onChecks: () => openTab('audit') }),
+      queue?.next ? el('a', { class: 'rli-sum__next', href: `${window.__base__ || ''}/task/${queue.next.bucket}/${queue.next.id}` }, 'Next task →') : null);
     return;
   }
   mount(strip,
@@ -2821,7 +2809,7 @@ const params = new URLSearchParams(location.search);
 if (params.get('traj')) {
   showTrajectory(params.get('traj'), params.has('msg') ? Number(params.get('msg')) : null);
 } else if (meta?.kind === 'rli') {
-  openTab(params.get('tab') || 'brief');
+  openTab(params.get('tab') === 'checks' ? 'audit' : params.get('tab') || 'brief');
 } else if (hasReview) {
   openTab('review');
 } else {

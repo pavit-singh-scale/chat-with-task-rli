@@ -11,7 +11,7 @@ const KIND_ORDER = ['image', 'video', 'audio', 'pdf', 'model3d', 'cad', 'design'
 const KIND_LABEL = { image: 'Images', video: 'Video', audio: 'Audio', pdf: 'PDF', model3d: '3D models', cad: 'CAD / scene files', design: 'Design files', doc: 'Documents', sheet: 'Spreadsheets', text: 'Text & code', archive: 'Archives', other: 'Other' };
 const GATE = { golden: 97, ad1: 70, ad2: 50 };
 
-export function createRli({ bucket, taskId, onCrit, onSpec }) {
+export function createRli({ bucket, taskId, onCrit, onSpec, onOpenDoc }) {
   let cache = null;
   const load = async (refresh = false) => {
     if (!cache || refresh) cache = api(`/task/${bucket}/${taskId}/rli`);
@@ -35,27 +35,58 @@ export function createRli({ bucket, taskId, onCrit, onSpec }) {
     return t.models[side] || '—';
   }
 
-  // ---------- header card shared by every view ----------
-  function headerCard(t) {
-    const score = (side) => {
-      const v = t.scores?.[side]?.percentage;
-      const ok = v == null ? null : side === 'golden' ? v >= GATE.golden : v <= GATE[side];
-      return el('div', { class: `rli-score ${ok === false ? 'is-bad' : ''}` },
-        el('span', { class: 'rli-score__lbl' }, SIDE_LABEL[side]),
-        el('b', {}, pct(v)),
-        el('span', { class: 'rli-score__gate' }, side === 'golden' ? '≥ 97' : `≤ ${GATE[side]}`),
-      );
-    };
-    return el('div', { class: 'rli-head' },
-      el('div', { class: 'rli-head__meta' },
-        el('span', { class: 'tag' }, t.domain || 'Unknown domain'),
-        t.timeline ? el('span', { class: 'tag tag--quiet' }, t.timeline) : null,
-        el('span', { class: 'rli-head__models' }, `AD1 ${t.models.ad1 || '—'} · AD2 ${t.models.ad2 || '—'}`),
+  // ---------- summary bar (above the tabs, once per task) ----------
+  // The numbers that decide a task — the three scores against their gates, the
+  // criteria count, the weight mix and the auto-check result — in one strip.
+  function gateStat(t, side) {
+    const v = t.scores?.[side]?.percentage;
+    const gate = GATE[side];
+    let state = 'na', sub = side === 'golden' ? `gate ≥ ${gate}` : `gate ≤ ${gate}`;
+    if (v != null) {
+      const margin = side === 'golden' ? v - gate : gate - v;
+      state = margin < 0 ? 'bad' : side !== 'golden' && margin <= 3 ? 'warn' : 'ok';
+      sub = margin < 0
+        ? `${Math.abs(Math.round(margin * 10) / 10)} ${side === 'golden' ? 'under' : 'over'} ${gate}`
+        : side === 'golden' ? `clears ${gate}` : `${Math.round(margin * 10) / 10} pts under ${gate}`;
+    }
+    return el('div', { class: `rli-stat is-${state}`, title: side === 'golden' ? 'Human reference deliverable' : modelLine(t, side) },
+      el('div', { class: 'rli-stat__k' }, SIDE_LABEL[side], side !== 'golden' ? el('span', {}, modelLine(t, side)) : null),
+      el('div', { class: 'rli-stat__v' }, v == null ? '—' : `${Math.round(v * 10) / 10}`, v == null ? null : el('small', {}, '%')),
+      el('div', { class: 'rli-stat__s' }, sub),
+    );
+  }
+
+  function summaryBar(t, { queue = null, onChecks } = {}) {
+    const mixCheck = t.checks.find((c) => c.id === 'weights');
+    const mix = mixCheck?.mix;
+    const n = (st) => t.checks.filter((c) => c.status === st).length;
+    const fails = t.checks.filter((c) => c.status === 'fail');
+    const mixSeg = (b, v) => el('i', { class: `b-${b}`, style: `flex:${Math.max(v || 0, 0.001)}` });
+    return el('div', { class: 'rli-sum' },
+      el('div', { class: 'rli-sum__id' },
+        el('div', { class: 'rli-sum__meta' },
+          el('span', { class: 'rli-sum__domain' }, t.domain || 'Unknown domain'),
+          t.timeline ? el('span', {}, t.timeline.replace(/\s*\(.*\)/, '')) : null,
+          queue?.n ? el('span', {}, `${queue.n} of ${queue.total} in your queue`) : null),
+        el('div', { class: 'rli-sum__title', title: t.title }, t.title || '(no brief in this record)'),
+        t.missing.some((m) => !['timeline', 'inputs block'].includes(m))
+          ? el('div', { class: 'rli-sum__warn' }, `Record incomplete — missing ${t.missing.join(', ')}`) : null,
       ),
-      el('div', { class: 'rli-head__title' }, t.title || '(no brief)'),
-      el('div', { class: 'rli-scores' }, score('golden'), score('ad1'), score('ad2'),
-        el('div', { class: 'rli-score rli-score--n' }, el('span', { class: 'rli-score__lbl' }, 'Criteria'), el('b', {}, String(t.criteria.length)), el('span', { class: 'rli-score__gate' }, '40–100'))),
-      t.missing.length ? el('div', { class: 'callout warn rli-missing' }, `This record is missing: ${t.missing.join(', ')}.`) : null,
+      el('div', { class: 'rli-sum__stats' },
+        gateStat(t, 'golden'), gateStat(t, 'ad1'), gateStat(t, 'ad2'),
+        el('div', { class: `rli-stat is-${t.criteria.length < 40 ? 'bad' : 'ok'}` },
+          el('div', { class: 'rli-stat__k' }, 'Criteria'),
+          el('div', { class: 'rli-stat__v' }, String(t.criteria.length)),
+          el('div', { class: 'rli-stat__s' }, `${mix?.negatives || 0} penalties`)),
+        mix ? el('div', { class: `rli-stat rli-stat--mix is-${mixCheck.status === 'fail' ? 'bad' : mixCheck.status === 'warn' ? 'warn' : 'ok'}`, title: `Format ${mix.format}% · Brief ${mix.brief}% · Quality ${mix.quality}% of positive weight (target 5 / 30 / 65)` },
+          el('div', { class: 'rli-stat__k' }, 'Weight mix'),
+          el('div', { class: 'rli-stat__v' }, `${mix.quality}`, el('small', {}, '% quality')),
+          el('div', { class: 'rli-minimix' }, mixSeg('format', mix.format), mixSeg('brief', mix.brief), mixSeg('quality', mix.quality), mix.other ? mixSeg('other', mix.other) : null, el('b', {}))) : null,
+        el('button', { type: 'button', class: `rli-stat rli-stat--checks is-${n('fail') ? 'bad' : n('warn') ? 'warn' : 'ok'}`, onclick: onChecks },
+          el('div', { class: 'rli-stat__k' }, 'Auto-checks'),
+          el('div', { class: 'rli-stat__v' }, n('fail') ? String(n('fail')) : '✓', n('fail') ? el('small', {}, n('fail') > 1 ? ' fails' : ' fail') : null),
+          el('div', { class: 'rli-stat__s' }, fails.length ? fails.map((c) => c.label.split(' (')[0].split(':')[0]).join(' · ') : n('warn') ? `${n('warn')} to check` : 'all clear')),
+      ),
     );
   }
 
@@ -73,7 +104,6 @@ export function createRli({ bucket, taskId, onCrit, onSpec }) {
       : [el('div', { class: 'callout warn' }, 'This record has no brief.')];
     const inputs = t.files.input;
     return el('div', { class: 'rli rli-brief' },
-      headerCard(t),
       el('div', { class: 'rli-brief__grid' },
         el('div', { class: 'rli-brief__main' }, ...sections,
           el('p', { class: 'hint-line' }, 'This is the brief as exported. If it was rewritten at the brief-sufficiency step, the contributor\'s original may differ — the models may have worked from either.')),
@@ -160,9 +190,7 @@ export function createRli({ bucket, taskId, onCrit, onSpec }) {
     }
     render();
     return el('div', { class: 'rli rli-deliv' },
-      headerCard(t),
-      el('div', { class: 'rli-toolbar' }, seg, el('span', { class: 'spacer' }),
-        el('span', { class: 'hint-line' }, 'Click any file to open it. ← → step through a side; C compares the same file across RD/AD1/AD2.')),
+      el('div', { class: 'rli-toolbar', title: 'Click any file to open it. ← → step through a side; C compares the same file across RD / AD1 / AD2.' }, seg),
       body,
     );
   }
@@ -409,7 +437,6 @@ export function createRli({ bucket, taskId, onCrit, onSpec }) {
     renderRows();
 
     return el('div', { class: 'rli rli-rubric' },
-      headerCard(t),
       mix ? mixBar(mix, weights) : null,
       el('div', { class: 'rli-toolbar rli-toolbar--wrap' }, search, catSel,
         el('div', { class: 'seg rli-seg' },
@@ -444,66 +471,107 @@ export function createRli({ bucket, taskId, onCrit, onSpec }) {
   }
 
   // ---------- Preference ----------
+  // One matrix: dimensions × the three comparisons. Each cell is a 1–7 scale
+  // with the pick marked and tinted toward the side it favours; justifications
+  // sit collapsed underneath.
   async function buildPreference() {
     const t = await load();
     const comps = t.pref?.comparisons || [];
+    if (!comps.length) return el('div', { class: 'rli rli-prefs' }, el('div', { class: 'callout warn' }, 'No preference ranking in this record.'));
     const align = new Map((t.checks.find((c) => c.id === 'alignment')?.align || []).map((a) => [a.pair, a]));
     const sc = (lbl) => t.scores?.[{ RD: 'golden', AD1: 'ad1', AD2: 'ad2' }[lbl]]?.percentage;
-    const card = (c) => {
-      const a = align.get(c.pair);
-      return el('section', { class: 'rli-pref' },
-        el('header', { class: 'rli-pref__head' },
-          el('b', {}, `${c.left} vs ${c.right}`),
-          el('span', { class: 'hint-line' }, `${c.left} ${pct(sc(c.left))} · ${c.right} ${pct(sc(c.right))} on the rubric`),
-          el('span', { class: 'spacer' }),
-          a ? statusPill(a.status) : null),
-        a?.why ? el('div', { class: `callout ${a.status === 'fail' ? 'fail' : 'warn'} rli-pref__why` }, a.why) : null,
-        el('div', { class: 'rli-likert' },
-          el('div', { class: 'rli-likert__axis' }, el('span', {}, `← ${c.left} better`), el('span', {}, 'comparable'), el('span', {}, `${c.right} better →`)),
-          (c.dimensions || []).map((d) => el('div', { class: 'rli-likert__row' },
-            el('span', { class: 'rli-likert__lbl' }, d.title || d.id),
-            el('div', { class: 'rli-likert__track' },
-              [1, 2, 3, 4, 5, 6, 7].map((k) => el('span', { class: `rli-likert__tick${k === Number(d.score) ? ' is-on' : ''}${k === 4 ? ' is-mid' : ''}` }, k === Number(d.score) ? String(k) : ''))),
-            el('span', { class: 'rli-likert__pref' }, d.preferred === 'comparable' ? '≈' : d.preferred || '')))),
-        el('div', { class: 'cb-label' }, 'Justification'),
-        (() => { const d = el('div', { class: 'cb-prose' }); d.innerHTML = renderMarkdown(c.justification || '_(none)_'); return d; })(),
-      );
+    const dims = [];
+    for (const c of comps) for (const d of c.dimensions || []) if (!dims.find((x) => x.id === d.id)) dims.push({ id: d.id, title: d.title || d.id });
+    const lean = (score, c) => (score < 4 ? c.left : score > 4 ? c.right : '≈');
+    const strength = (score) => ['', 'strongly', 'clearly', 'slightly', '', 'slightly', 'clearly', 'strongly'][score] || '';
+    const cell = (c, d) => {
+      const s = Number(d?.score);
+      if (!s) return el('td', { class: 'rli-pm__cell' }, '—');
+      const side = s < 4 ? 'l' : s > 4 ? 'r' : 'm';
+      return el('td', { class: `rli-pm__cell is-${side}`, title: `${d.score}: ${s === 4 ? 'comparable' : `${lean(s, c)} ${strength(s)} better`}` },
+        el('div', { class: 'rli-pm__scale' }, [1, 2, 3, 4, 5, 6, 7].map((k) => el('i', { class: `${k === s ? 'on' : ''}${k === 4 ? ' mid' : ''}` }))),
+        el('span', { class: 'rli-pm__lbl' }, s === 4 ? '≈' : lean(s, c), el('b', {}, String(s))));
     };
+    const mean = (c) => {
+      const xs = (c.dimensions || []).map((d) => Number(d.score)).filter(Boolean);
+      return xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : 4;
+    };
+    const issues = [...align.values()].filter((a) => a.why);
     return el('div', { class: 'rli rli-prefs' },
-      headerCard(t),
-      t.pref ? el('p', { class: 'hint-line' }, `${t.pref.type || 'pairwise'} ranking · scale 1 = left better, 4 = comparable, 7 = right better${t.pref.rd_better_than_ads != null ? ` · contributor marked RD better than the ADs: ${t.pref.rd_better_than_ads ? 'yes' : 'no'}` : ''}`) : null,
-      comps.length ? comps.map(card) : el('div', { class: 'callout warn' }, 'No preference ranking in this record.'),
+      issues.length ? el('div', { class: 'rli-inline-issues' }, issues.map((a) => el('div', { class: `rli-issue is-${a.status}` }, statusPill(a.status), el('span', {}, a.why)))) : null,
+      el('table', { class: 'rli-pm' },
+        el('thead', {}, el('tr', {},
+          el('th', { class: 'rli-pm__dimh' }, el('span', {}, '1 = left better · 7 = right better')),
+          comps.map((c) => {
+            const a = align.get(c.pair);
+            return el('th', {},
+              el('div', { class: 'rli-pm__pair' }, el('b', {}, c.left), el('span', {}, 'vs'), el('b', {}, c.right), a ? el('span', { class: `rli-dot is-${a.status}`, title: a.why || 'Preference and rubric agree' }) : null),
+              el('div', { class: 'rli-pm__rub' }, `rubric ${pct(sc(c.left))} · ${pct(sc(c.right))}`));
+          }))),
+        el('tbody', {},
+          dims.map((d) => el('tr', {}, el('th', { class: 'rli-pm__dim' }, d.title), comps.map((c) => cell(c, (c.dimensions || []).find((x) => x.id === d.id))))),
+          el('tr', { class: 'rli-pm__overall' }, el('th', { class: 'rli-pm__dim' }, 'Mean'),
+            comps.map((c) => { const m = mean(c); return el('td', { class: `rli-pm__cell is-${m < 3.5 ? 'l' : m > 4.5 ? 'r' : 'm'}` }, el('b', {}, m.toFixed(1)), ' ', el('span', { class: 'rli-pm__lean' }, m < 3.5 ? `favours ${c.left}` : m > 4.5 ? `favours ${c.right}` : 'comparable')); })),
+        )),
+      el('div', { class: 'rli-justs' }, comps.map((c) => {
+        const body = el('div', { class: 'cb-prose rli-clamp' });
+        body.innerHTML = renderMarkdown(c.justification || '_(none)_');
+        const box = el('div', { class: 'rli-justcard' },
+          el('div', { class: 'rli-justcard__head' }, el('b', {}, `${c.left} vs ${c.right}`), el('span', { class: 'hint-line' }, 'justification')),
+          body,
+          el('button', { type: 'button', class: 'link', onclick: (e) => { const open = body.classList.toggle('is-open'); e.currentTarget.textContent = open ? 'Show less' : 'Read all'; } }, 'Read all'));
+        return box;
+      })),
+      t.pref.rd_better_than_ads != null ? el('p', { class: 'hint-line' }, `Contributor marked RD better than the ADs: ${t.pref.rd_better_than_ads ? 'yes' : 'no'}.`) : null,
     );
   }
 
-  // ---------- Checks ----------
-  async function buildChecks(specDims = []) {
+  // ---------- Audit (checks + auditor dimensions + docs) ----------
+  async function buildAudit(specDims = [], docs = {}) {
     const t = await load();
     const auto = new Set(t.checks.map((c) => c.dim).filter(Boolean));
     const human = specDims.filter((d) => !auto.has(d.key));
-    const order = { fail: 0, warn: 1, info: 2, pass: 3, na: 4 };
-    const checks = [...t.checks].sort((a, b) => order[a.status] - order[b.status]);
-    const n = (s) => t.checks.filter((c) => c.status === s).length;
-    return el('div', { class: 'rli rli-checks' },
-      headerCard(t),
-      el('div', { class: 'rli-checks__roll' },
-        el('b', {}, 'Automated checks'),
-        el('span', { class: 'hint-line' }, 'Only what the record can prove. Every other spec dimension is listed below for the auditor.'),
-        el('span', { class: 'spacer' }),
-        n('fail') ? el('span', { class: 'rli-pill is-fail' }, `${n('fail')} fail`) : null,
-        n('warn') ? el('span', { class: 'rli-pill is-warn' }, `${n('warn')} to check`) : null,
-        el('span', { class: 'rli-pill is-pass' }, `${n('pass')} pass`)),
-      el('div', { class: 'rli-checklist' }, checks.map((c) => el('div', { class: `rli-check is-${c.status}` },
-        el('div', { class: 'rli-check__head' }, statusPill(c.status), el('b', {}, c.label), specChip(c.dim)),
-        el('div', { class: 'rli-check__sum' }, c.summary),
-        c.detail ? el('div', { class: 'rli-check__detail' }, c.detail) : null,
-        c.note ? el('div', { class: 'rli-check__note' }, c.note) : null,
-        c.evidence?.length ? el('div', { class: 'rli-check__ev' }, c.evidence.slice(0, 24).map(critChip)) : null,
-      ))),
-      human.length ? el('div', { class: 'rli-human' },
-        el('div', { class: 'rli-checks__roll' }, el('b', {}, 'Needs an auditor'), el('span', { class: 'hint-line' }, `${human.length} spec dimensions that need eyes on the files and the rubric.`)),
-        el('div', { class: 'rli-human__grid' }, human.map((d) => el('button', { type: 'button', class: 'rli-human__item', onclick: () => onSpec(d.key) },
-          el('span', { class: 'rli-spec' }, d.key), el('span', {}, `${d.category} · ${d.name}`))))) : null,
+    const order = { fail: 0, warn: 1, info: 2 };
+    const open = t.checks.filter((c) => c.status in order).sort((a, b) => order[a.status] - order[b.status]);
+    const passed = t.checks.filter((c) => c.status === 'pass');
+    const na = t.checks.filter((c) => c.status === 'na');
+    const row = (c) => {
+      const more = c.detail || c.note || c.evidence?.length;
+      const detail = more ? el('div', { class: 'rli-row__more', hidden: c.status === 'fail' ? null : '' },
+        c.detail ? el('div', { class: 'rli-row__detail' }, c.detail) : null,
+        c.note ? el('div', { class: 'rli-row__note' }, c.note) : null,
+        c.evidence?.length ? el('div', { class: 'rli-row__ev' }, c.evidence.slice(0, 24).map(critChip)) : null) : null;
+      if (detail && c.status === 'fail') detail.removeAttribute('hidden');
+      return el('div', { class: `rli-row is-${c.status}` },
+        el('button', { type: 'button', class: 'rli-row__main', onclick: () => { if (detail) detail.hidden = !detail.hidden; } },
+          el('span', { class: `rli-dot is-${c.status}` }),
+          el('b', {}, c.label),
+          el('span', { class: 'rli-row__sum' }, c.summary),
+          specChip(c.dim),
+          more ? el('span', { class: 'rli-row__chev' }, '▾') : null),
+        detail);
+    };
+    const docCard = (key, label, blurb) => el('button', { type: 'button', class: `rli-doc${docs[key] ? ' is-ready' : ''}`, onclick: () => onOpenDoc(key) },
+      el('b', {}, label),
+      el('span', {}, docs[key] ? 'Open' : 'Not generated yet'),
+      el('p', {}, blurb));
+    return el('div', { class: 'rli rli-audit' },
+      el('section', { class: 'rli-sec' },
+        el('header', { class: 'rli-sec__head' }, el('h3', {}, 'Automated checks'), el('span', { class: 'hint-line' }, 'decided from the record alone')),
+        open.length ? el('div', { class: 'rli-rows' }, open.map(row)) : el('div', { class: 'rli-allclear' }, 'Nothing flagged.'),
+        passed.length || na.length ? el('div', { class: 'rli-passline' },
+          el('span', { class: 'rli-passline__lbl' }, `${passed.length} passed`),
+          passed.map((c) => el('button', { type: 'button', class: 'rli-passchip', title: c.summary, onclick: () => onSpec(c.dim) }, '✓ ', c.label.split(' (')[0])),
+          na.map((c) => el('span', { class: 'rli-passchip is-na', title: c.summary }, `– ${c.label} (n/a)`))) : null),
+      el('section', { class: 'rli-sec' },
+        el('header', { class: 'rli-sec__head' }, el('h3', {}, 'Auditor dimensions'), el('span', { class: 'hint-line' }, `${human.length} need eyes on the files and the rubric`)),
+        el('div', { class: 'rli-dims' }, human.map((d) => el('button', { type: 'button', class: 'rli-dim', onclick: () => onSpec(d.key), title: d.description?.slice(0, 300) || '' },
+          el('span', { class: 'rli-dim__k' }, d.key), el('span', { class: 'rli-dim__n' }, d.name), el('span', { class: 'rli-dim__c' }, d.category))))),
+      el('section', { class: 'rli-sec' },
+        el('header', { class: 'rli-sec__head' }, el('h3', {}, 'Reports')),
+        el('div', { class: 'rli-docs' },
+          docCard('review', 'Review', 'Findings per spec dimension, each with the evidence that decides it.'),
+          docCard('remediation', 'Remediation', 'The fix list for the contributor, with approve / edit / deny on each fix.'))),
     );
   }
 
@@ -517,5 +585,5 @@ export function createRli({ bucket, taskId, onCrit, onSpec }) {
     return true;
   }
 
-  return { load, buildBrief, buildDeliverables, buildRubric, buildPreference, buildChecks, flashCrit, resetFilter: () => { rubricFilter.q = ''; rubricFilter.cat = ''; rubricFilter.only = ''; } };
+  return { load, summaryBar, buildBrief, buildDeliverables, buildRubric, buildPreference, buildAudit, flashCrit, resetFilter: () => { rubricFilter.q = ''; rubricFilter.cat = ''; rubricFilter.only = ''; } };
 }
