@@ -487,6 +487,12 @@ async function watchDoc(doc) {
     clearInterval(docWatch); docWatch = null;
     finished = true;
     if (s.state === 'error') { say(`Generation failed: ${s.error}`, 'error-line'); return; }
+    // The RLI eval files the task under its verdict — follow it to the new URL.
+    if (s.movedTo && s.movedTo !== bucket) {
+      say(`Eval filed this task as ${SEV_LABEL[s.movedTo] || s.movedTo} — reloading…`);
+      setTimeout(() => { location.href = `${window.__base__ || ''}/task/${s.movedTo}/${taskId}?tab=${doc.key}`; }, 900);
+      return;
+    }
     if (activeTab === doc.key) {
       // still on this doc's tab (or its placeholder) — load the fresh doc
       banner.remove();

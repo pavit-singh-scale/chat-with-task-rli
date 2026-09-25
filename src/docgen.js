@@ -4,6 +4,8 @@ import { runAgentLoop } from './llm.js';
 import { TOOL_DEFS, makeExecutor, makeExecutorForDir } from './tools.js';
 import { readTaskDef, readTaskDefIn, taskDir, writeTaskFile, writeFileIn, grammarInfo } from './workspace.js';
 import { QUALITY_CANON } from './spec.js';
+import { isRliTask } from './rli.js';
+import { generateRliDoc } from './rli_docgen.js';
 
 // Shared context block: rank.json digest + audit seed, prepended to every
 // system prompt (chat copilot and doc generation).
@@ -261,6 +263,11 @@ export async function generateDoc(bucket, id, which, onEvent, onUsage) {
 // Used by the app (via generateDoc) and by tools/gen_docs.mjs to pre-bake docs
 // into a delivery folder before it's zipped for upload.
 export async function generateDocForDir(dir, which, { onEvent, onUsage, id = path.basename(dir) } = {}) {
+  if (isRliTask(dir)) {
+    const doc = cleanDoc(await generateRliDoc(dir, which, { onEvent, onUsage, id }));
+    writeFileIn(dir, `${which}.md`, doc);
+    return doc;
+  }
   const isReview = which === 'review';
   const system = [
     isReview ? REVIEW_PROMPT : REMEDIATION_PROMPT,

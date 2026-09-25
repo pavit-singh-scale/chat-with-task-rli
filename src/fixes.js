@@ -63,8 +63,23 @@ export function writeJsonAtomic(p, data) {
   fs.renameSync(tmp, p);
 }
 
-export const rankPath = (dir) => path.join(dir, 'rank.json');
-export const sourcePath = (dir) => path.join(dir, 'rank.source.json');
+// RLI tasks keep their record in task.json; fixes target it, with a pristine
+// task.source.json (written at ingest, or lazily on first use) for undo.
+const isRli = (dir) => fs.existsSync(path.join(dir, 'task.json'));
+// For RLI the pristine copy must exist BEFORE the first write — creating it
+// lazily at undo time would snapshot the already-edited record.
+export const rankPath = (dir) => {
+  if (!isRli(dir)) return path.join(dir, 'rank.json');
+  const src = path.join(dir, 'task.source.json');
+  if (!fs.existsSync(src)) fs.copyFileSync(path.join(dir, 'task.json'), src);
+  return path.join(dir, 'task.json');
+};
+export const sourcePath = (dir) => {
+  if (!isRli(dir)) return path.join(dir, 'rank.source.json');
+  const src = path.join(dir, 'task.source.json');
+  if (!fs.existsSync(src)) fs.copyFileSync(path.join(dir, 'task.json'), src);
+  return src;
+};
 export const ledgerPath = (dir) => path.join(dir, 'fix_ledger.json');
 export const fixesCachePath = (dir) => path.join(dir, 'fixes.json');
 
@@ -99,6 +114,8 @@ export function parseFixBlocks(md) {
     try {
       const fix = JSON.parse(m[1]);
       if (!fix.id) fix.id = `F${i}`;
+      // RLI: "rd" is what everyone calls the golden side; the record's key is "golden".
+      if (typeof fix.path === 'string') fix.path = fix.path.replace(/(\/criteria\/\d+\/)rd(\/|$)/, '$1golden$2');
       blocks.push(fix);
     } catch (e) {
       errors.push({ block: i, error: e.message, raw: m[1].slice(0, 200) });

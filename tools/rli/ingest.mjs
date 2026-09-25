@@ -74,6 +74,7 @@ for (const rec of records) {
   fs.rmSync(stage, { recursive: true, force: true });
   fs.mkdirSync(path.join(stage, 'files'), { recursive: true });
   fs.writeFileSync(path.join(stage, 'task.json'), JSON.stringify(rec, null, 2));
+  fs.writeFileSync(path.join(stage, 'task.source.json'), JSON.stringify(rec, null, 2)); // pristine copy for fix undo
 
   const sources = {};
   if (!noFiles) {

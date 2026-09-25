@@ -1,5 +1,9 @@
 import { generateDocForDir } from './docgen.js';
-import { taskDir } from './workspace.js';
+import { taskDir, moveTask } from './workspace.js';
+import { isRliTask } from './rli.js';
+import { proposedBucket } from './rli_docgen.js';
+import fs from 'node:fs';
+import path from 'node:path';
 import { recordUsage } from './usage.js';
 import { config } from './config.js';
 
@@ -47,7 +51,17 @@ async function runJob({ bucket, id, whichList, user }) {
       });
       recordUsage({ user: user || '(batch)', taskId: id, kind: `docgen:${w}`, model: config.litellm.model, usage: acc, text: `Generated ${w}.md` });
     }
-    status.set(k, { state: 'done', which: whichList, ts: Date.now() });
+    // RLI: the review's proposed bucket IS the eval's severity call, so the task
+    // is filed there — unless a reviewer has already put a decision on it.
+    let movedTo = null;
+    if (whichList.includes('review') && isRliTask(dir)) {
+      const target = proposedBucket(fs.readFileSync(path.join(dir, 'review.md'), 'utf8'));
+      let decided = false;
+      try { decided = !!JSON.parse(fs.readFileSync(path.join(dir, '_studio.json'), 'utf8')).verdict; } catch { /* no state */ }
+      if (target && target !== bucket && !decided) { moveTask(bucket, id, target); movedTo = target; }
+    }
+    status.set(k, { state: 'done', which: whichList, movedTo, ts: Date.now() });
+    if (movedTo) status.set(`${movedTo}/${id}`, { state: 'done', which: whichList, movedFrom: bucket, ts: Date.now() });
   } catch (e) {
     status.set(k, { state: 'error', which: whichList, error: e.message, ts: Date.now() });
   }

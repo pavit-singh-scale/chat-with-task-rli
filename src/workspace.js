@@ -78,7 +78,7 @@ function auditDims(dir) {
     const md = fs.readFileSync(path.join(dir, 'review.md'), 'utf8');
     const m = md.match(/```autoqc\s*\n([\s\S]*?)```/);
     if (!m) return null; // un-audited, or an older doc without the fence
-    return [...new Set([...m[1].matchAll(/^\s*(R\d{1,2})\b/gm)].map((x) => x[1]))];
+    return [...new Set([...m[1].matchAll(/^\s*([RD]\d{1,2})\b/gm)].map((x) => x[1]))];
   } catch { return null; }
 }
 
