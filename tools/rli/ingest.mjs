@@ -14,6 +14,7 @@ import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { config } from '../../src/config.js';
 import { readRliIn, checkRollup } from '../../src/rli.js';
+import { deriveTask } from '../../src/rli_derive.js';
 
 const args = process.argv.slice(2);
 const file = args.find((a) => !a.startsWith('--'));
@@ -100,6 +101,7 @@ for (const rec of records) {
   }
   fs.writeFileSync(path.join(stage, 'files', '_sources.json'), JSON.stringify(sources, null, 2));
 
+  if (!noFiles) deriveTask(stage, { log: (m) => console.log(`  ${m}`) });
   const t = readRliIn(stage);
   const roll = checkRollup(t.checks);
   const bucket = roll.fail ? 'HARD_FAIL' : 'UNSORTED';

@@ -11,6 +11,7 @@
 // cannot prove from the record.
 import fs from 'node:fs';
 import path from 'node:path';
+import { derivedFor } from './rli_derive.js';
 
 export const SIDES = [
   { key: 'golden', label: 'RD', long: 'Reference deliverable (golden)' },
@@ -46,8 +47,8 @@ const MEDIA = [
   ['video', /\.(mp4|m4v|mov|webm|mkv|avi|wmv)$/i],
   ['audio', /\.(mp3|wav|ogg|aac|m4a|flac|aiff?)$/i],
   ['pdf', /\.pdf$/i],
-  ['model3d', /\.(obj|glb|gltf|stl|fbx|ply)$/i],
-  ['cad', /\.(dwg|dxf|skp|stp|step|ipt|3dm|3ds|rvt|ifc|max|blend|sldprt|sldasm|c4d|ma|mb)$/i],
+  ['model3d', /\.(obj|glb|gltf|stl|fbx|ply|3ds|dae)$/i],
+  ['cad', /\.(dwg|dxf|skp|stp|step|ipt|3dm|rvt|ifc|max|blend|sldprt|sldasm|c4d|ma|mb)$/i],
   ['design', /\.(psd|ai|eps|indd|fig|sketch|xd|afdesign|afphoto)$/i],
   ['sheet', /\.(csv|xlsx?|ods)$/i],
   ['doc', /\.(docx?|pptx?|odt|rtf)$/i],
@@ -76,7 +77,12 @@ function listSide(dir, side) {
       const r = rel ? `${rel}/${name}` : name;
       const st = fs.statSync(abs);
       if (st.isDirectory()) walk(abs, r);
-      else out.push({ name, rel: r, path: `files/${side}/${r}`, size: st.size, kind: kindOf(name) });
+      else {
+        const f = { name, rel: r, path: `files/${side}/${r}`, size: st.size, kind: kindOf(name) };
+        const d = derivedFor(dir, f.path);
+        if (d) f.derived = d;
+        out.push(f);
+      }
     }
   })(root, '');
   return out;

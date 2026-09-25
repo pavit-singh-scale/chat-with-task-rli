@@ -454,18 +454,7 @@ function allTickets() {
 // RLI cards: domain, the three rubric scores against their gates, and which
 // automated spec checks already fail — the triage signal before anyone opens it.
 function rliCardBits(r) {
-  const sc = (lbl, v, bad) => el('span', { class: `rli-cs${bad ? ' is-bad' : ''}` }, el('i', {}, lbl), v == null ? '—' : `${Math.round(v)}%`);
-  return el('div', { class: 'rli-card' },
-    el('div', { class: 'rli-card__row' },
-      el('span', { class: 'tag tag--quiet' }, r.domain || '—'),
-      el('span', { class: 'spacer' }),
-      sc('RD', r.scores.golden, r.scores.golden != null && r.scores.golden < 97),
-      sc('AD1', r.scores.ad1, r.scores.ad1 != null && r.scores.ad1 > 70),
-      sc('AD2', r.scores.ad2, r.scores.ad2 != null && r.scores.ad2 > 50)),
-    r.checks.fail || r.incomplete
-      ? el('div', { class: 'rli-card__fails' }, r.checks.failing.map((f) => el('span', { class: 'rli-card__fail' }, f.replace(/\s*\(.*\)$/, ''))))
-      : el('div', { class: 'rli-card__ok' }, r.checks.warn ? `Auto-checks clear · ${r.checks.warn} to check` : 'Auto-checks clear'),
-  );
+  return el('div', { class: 'rli-card' }, el('span', { class: 'rli-card__domain' }, r.domain || '—'));
 }
 
 function ticketCard(t) {
@@ -485,13 +474,13 @@ function ticketCard(t) {
     el('div', { class: 'card__top' },
       // Severity is a tag, never a coloured left edge on the card.
       el('span', { class: `tag ${SEV_TAG[t.bucket] || ''}` }, SEV_LABEL[t.bucket]),
-      upstreamLayers[t.id]
+      t.kind !== 'rli' && upstreamLayers[t.id]
         ? el('span', {
           class: `tag tag--layer${upstreamLayers[t.id].level === '12' ? ' tag--layer-l12' : ''}`,
           title: `Redash: L${upstreamLayers[t.id].level} · ${upstreamLayers[t.id].status}`,
         }, `L${upstreamLayers[t.id].level}`)
         : null,
-      backfillTag(t.id),
+      t.kind !== 'rli' ? backfillTag(t.id) : null,
       t.tour ? el('span', { class: 'tag', title: 'temporary tour sandbox — deleted when the tour ends' }, 'sandbox') : null,
       t.delivered ? el('span', { class: 'tag', title: `delivered${t.deliveredAt ? ' ' + t.deliveredAt.slice(0, 10) : ''}` }, 'archived') : null,
       el('span', { class: 'spacer' }),

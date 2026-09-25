@@ -134,7 +134,9 @@ export function createRli({ bucket, taskId, onCrit, onSpec, onOpenDoc }) {
   // Non-visual files read better as a list than as big glyph tiles.
   function fileList(t, files, list, unlisted = new Set()) {
     return el('div', { class: 'rli-flist' }, files.map((f) => el('button', { type: 'button', class: 'rli-frow', onclick: () => openViewer(t, f, list), title: f.rel },
-      el('span', { class: `rli-ext k-${f.kind}` }, (f.name.split('.').pop() || '').toUpperCase().slice(0, 4)),
+      f.derived && (f.derived.thumb || ['image', 'drawing'].includes(f.derived.kind))
+        ? el('img', { class: 'rli-frow__thumb', src: rawUrl(f.derived.thumb || f.derived.path), alt: '', loading: 'lazy' })
+        : el('span', { class: `rli-ext k-${f.kind}` }, (f.name.split('.').pop() || '').toUpperCase().slice(0, 4)),
       el('span', { class: 'rli-frow__name' }, f.rel),
       unlisted.has(f.rel) ? el('span', { class: 'rli-tile__mark rli-tile__mark--inline' }, 'not in brief') : null,
       el('span', { class: 'rli-frow__size' }, fmtSize(f.size)))));
@@ -142,8 +144,10 @@ export function createRli({ bucket, taskId, onCrit, onSpec, onOpenDoc }) {
 
   const MODEL_PREF = ['glb', 'gltf', 'obj', 'fbx', 'stl', 'ply'];
   function primaryModel(files) {
-    const models = files.filter((f) => f.kind === 'model3d');
-    return models.sort((a, b) => MODEL_PREF.indexOf(a.name.split('.').pop().toLowerCase()) - MODEL_PREF.indexOf(b.name.split('.').pop().toLowerCase()))[0] || null;
+    const native = files.filter((f) => f.kind === 'model3d');
+    const derived = files.filter((f) => f.derived?.kind === 'model3d').map((f) => ({ ...f, viewPath: f.derived.path }));
+    const models = native.length ? native : derived;
+    return models.sort((a, b) => MODEL_PREF.indexOf((a.viewPath || a.name).split('.').pop().toLowerCase()) - MODEL_PREF.indexOf((b.viewPath || b.name).split('.').pop().toLowerCase()))[0] || null;
   }
 
   // One side (RD / AD1 / AD2 / inputs): the 3D model leads — it's what these
@@ -168,7 +172,7 @@ export function createRli({ bucket, taskId, onCrit, onSpec, onOpenDoc }) {
       files.length ? null : el('div', { class: 'hint-line rli-col__empty' }, 'No files delivered.'),
       model ? el('div', { class: 'rli-hero' },
         el('div', { class: 'rli-hero__stage' }, lazyModel(model)),
-        el('button', { type: 'button', class: 'rli-hero__open', onclick: () => openViewer(t, model, files) }, `${model.name} ↗`)) : null,
+        el('button', { type: 'button', class: 'rli-hero__open', onclick: () => openViewer(t, model, files) }, `${model.name}${model.viewPath ? ' · converted to GLB' : ''} ↗`)) : scenePreview(t, files),
       images.length ? group('Renders & images', images.length, el('div', { class: `rli-tiles${dense ? ' rli-tiles--dense' : ''}` }, images.map((f) => fileTile(t, f, { list: files })))) : null,
       videos.length ? group('Video', videos.length, el('div', { class: 'rli-vids' }, videos.map((f) => el('div', { class: 'rli-vid' },
         el('video', { src: rawUrl(f.path), controls: '', preload: 'metadata' }),
@@ -179,6 +183,15 @@ export function createRli({ bucket, taskId, onCrit, onSpec, onOpenDoc }) {
       pdfs.length ? group('PDF', pdfs.length, fileList(t, pdfs, files)) : null,
       rest.length ? group('Source & other files', rest.length, fileList(t, rest, files)) : null,
     );
+  }
+
+  // No 3D in the browser for this side — show the scene file's embedded preview.
+  function scenePreview(t, files) {
+    const f = files.find((x) => x.derived?.kind === 'image');
+    if (!f) return null;
+    return el('div', { class: 'rli-hero' },
+      el('div', { class: 'rli-hero__stage rli-hero__stage--img' }, el('img', { src: rawUrl(f.derived.path), alt: f.name, onclick: () => openViewer(t, f, files) })),
+      el('button', { type: 'button', class: 'rli-hero__open', onclick: () => openViewer(t, f, files), title: f.derived.label }, `${f.name} · saved preview ↗`));
   }
 
   // Inline 3D viewer that only boots when scrolled into view.
@@ -297,6 +310,14 @@ export function createRli({ bucket, taskId, onCrit, onSpec, onOpenDoc }) {
   }
 
   function mediaNode(f, { compact = false } = {}) {
+    if (f.derived) {
+      const d = f.derived;
+      const note = el('div', { class: 'rli-derived-note' }, d.label, ' · ', el('a', { href: rawUrl(f.path, true) }, `download ${f.name}`));
+      if (d.kind === 'model3d') return el('div', { class: 'rli-derived' }, model3d({ ...f, viewPath: d.path }, compact), note);
+      if (d.kind === 'cad2d') return el('div', { class: 'rli-derived' }, dxfView(d, f), note);
+      if (d.kind === 'drawing') return el('div', { class: 'rli-derived' }, el('div', { class: 'rli-drawing', title: 'Click to zoom', onclick: (e) => e.currentTarget.classList.toggle('is-zoom') }, el('img', { src: rawUrl(d.path), alt: f.name })), note);
+      return el('div', { class: 'rli-derived' }, el('img', { class: 'rli-media rli-media--img', src: rawUrl(d.path), alt: f.name }), note);
+    }
     const src = rawUrl(f.path);
     switch (f.kind) {
       case 'image': return el('img', { class: 'rli-media rli-media--img', src, alt: f.name });
@@ -321,12 +342,43 @@ export function createRli({ bucket, taskId, onCrit, onSpec, onOpenDoc }) {
     }
   }
 
+  // DXF (incl. DWG converted at ingest) in a real CAD viewer: model space,
+  // layers and text, pan with drag, zoom with the wheel.
+  function dxfView(d, f) {
+    const host = el('div', { class: 'rli-dxf' });
+    const status = el('div', { class: 'rli-3d__status' }, 'Loading drawing…');
+    host.append(status);
+    (async () => {
+      try {
+        const [{ DxfViewer }, T] = await Promise.all([
+          import('https://esm.sh/dxf-viewer@1.0.43?deps=three@0.160.0'),
+          import('https://esm.sh/three@0.160.0'),
+        ]);
+        const canvasHost = el('div', { class: 'rli-dxf__canvas' });
+        host.prepend(canvasHost);
+        const viewer = new DxfViewer(canvasHost, { clearColor: new T.Color('#ffffff'), autoResize: true, colorCorrection: true, sceneOptions: { wireframeMesh: true } });
+        await viewer.Load({
+          url: rawUrl(d.path),
+          fonts: ['https://cdn.jsdelivr.net/npm/@fontsource/roboto@5.0.8/files/roboto-latin-400-normal.woff'],
+          progressCbk: (phase, n, total) => { status.textContent = `${phase}${total ? ` ${Math.round((100 * n) / total)}%` : ''}…`; },
+        });
+        const layers = [...viewer.GetLayers()];
+        status.textContent = `${layers.length} layer${layers.length === 1 ? '' : 's'} · drag to pan, scroll to zoom`;
+      } catch (e) {
+        status.textContent = `Couldn't render this drawing (${e.message || e}).`;
+        status.classList.add('is-err');
+        if (f.derived?.thumb) host.prepend(el('div', { class: 'rli-drawing' }, el('img', { src: rawUrl(f.derived.thumb), alt: f.name })));
+      }
+    })();
+    return host;
+  }
+
   // three.js loaded on demand from esm.sh (rewrites bare 'three' imports, so no import map needed).
   let three = null;
   async function loadThree() {
     if (three) return three;
     const v = '0.160.0';
-    const [T, orbit, obj, fbx, gltf, stl, ply] = await Promise.all([
+    const [T, orbit, obj, fbx, gltf, stl, ply, tds, dae] = await Promise.all([
       import(`https://esm.sh/three@${v}`),
       import(`https://esm.sh/three@${v}/examples/jsm/controls/OrbitControls.js`),
       import(`https://esm.sh/three@${v}/examples/jsm/loaders/OBJLoader.js`),
@@ -334,8 +386,10 @@ export function createRli({ bucket, taskId, onCrit, onSpec, onOpenDoc }) {
       import(`https://esm.sh/three@${v}/examples/jsm/loaders/GLTFLoader.js`),
       import(`https://esm.sh/three@${v}/examples/jsm/loaders/STLLoader.js`),
       import(`https://esm.sh/three@${v}/examples/jsm/loaders/PLYLoader.js`),
+      import(`https://esm.sh/three@${v}/examples/jsm/loaders/TDSLoader.js`),
+      import(`https://esm.sh/three@${v}/examples/jsm/loaders/ColladaLoader.js`),
     ]);
-    three = { T, OrbitControls: orbit.OrbitControls, OBJLoader: obj.OBJLoader, FBXLoader: fbx.FBXLoader, GLTFLoader: gltf.GLTFLoader, STLLoader: stl.STLLoader, PLYLoader: ply.PLYLoader };
+    three = { T, OrbitControls: orbit.OrbitControls, OBJLoader: obj.OBJLoader, FBXLoader: fbx.FBXLoader, GLTFLoader: gltf.GLTFLoader, STLLoader: stl.STLLoader, PLYLoader: ply.PLYLoader, TDSLoader: tds.TDSLoader, ColladaLoader: dae.ColladaLoader };
     return three;
   }
 
@@ -346,7 +400,7 @@ export function createRli({ bucket, taskId, onCrit, onSpec, onOpenDoc }) {
     host.append(status, toolbar);
     (async () => {
       try {
-        const { T, OrbitControls, OBJLoader, FBXLoader, GLTFLoader, STLLoader, PLYLoader } = await loadThree();
+        const { T, OrbitControls, OBJLoader, FBXLoader, GLTFLoader, STLLoader, PLYLoader, TDSLoader, ColladaLoader } = await loadThree();
         const w = host.clientWidth || 800, h = host.clientHeight || 520;
         const renderer = new T.WebGLRenderer({ antialias: true });
         renderer.setPixelRatio(window.devicePixelRatio);
@@ -359,8 +413,8 @@ export function createRli({ bucket, taskId, onCrit, onSpec, onOpenDoc }) {
         const key = new T.DirectionalLight(0xffffff, 1.2); key.position.set(3, 5, 4); scene.add(key);
         const controls = new OrbitControls(camera, renderer.domElement);
         controls.enableDamping = true;
-        const url = rawUrl(f.path);
-        const ext = f.name.split('.').pop().toLowerCase();
+        const url = rawUrl(f.viewPath || f.path);
+        const ext = (f.viewPath || f.name).split('.').pop().toLowerCase();
         status.textContent = `Loading ${f.name} (${fmtSize(f.size)})…`;
         const material = new T.MeshStandardMaterial({ color: 0xc9ccd6, roughness: 0.6, metalness: 0.05, side: T.DoubleSide });
         let obj3d;
@@ -369,6 +423,8 @@ export function createRli({ bucket, taskId, onCrit, onSpec, onOpenDoc }) {
         else if (ext === 'glb' || ext === 'gltf') obj3d = (await new GLTFLoader().loadAsync(url)).scene;
         else if (ext === 'stl') obj3d = new T.Mesh(await new STLLoader().loadAsync(url), material);
         else if (ext === 'ply') obj3d = new T.Mesh(await new PLYLoader().loadAsync(url), material);
+        else if (ext === '3ds') { const l = new TDSLoader(); l.setResourcePath(url.replace(/[^/]*$/, '')); obj3d = await l.loadAsync(url); }
+        else if (ext === 'dae') obj3d = (await new ColladaLoader().loadAsync(url)).scene;
         let meshes = 0, tris = 0;
         const originals = new Map();
         obj3d.traverse((o) => {
@@ -377,7 +433,7 @@ export function createRli({ bucket, taskId, onCrit, onSpec, onOpenDoc }) {
             const g = o.geometry;
             tris += g.index ? g.index.count / 3 : (g.attributes.position?.count || 0) / 3;
             originals.set(o, o.material);
-            if (ext === 'obj' || !o.material) o.material = material;
+            if (ext === 'obj' || ext === '3ds' || !o.material) o.material = material;
           }
         });
         scene.add(obj3d);
