@@ -1,5 +1,6 @@
 import { api, apiSSE, renderMarkdown, el, mount, fmtTime, cap, startTour, avatar, personName } from './common.js';
 import { createRli } from './rli.js';
+import { createRliEval } from './rli_eval.js';
 
 const pathRelative = location.pathname.slice((window.__base__ || '').length);
 const [, , bucket, taskId] = pathRelative.split('/');
@@ -178,6 +179,16 @@ const rli = createRli({
   bucket, taskId,
   onCrit: (n, side) => { rli.resetFilter(); viewCache.delete('rli-rubric'); return showRliView('rubric').then(() => rli.flashCrit(n, side)); },
   onSpec: (key) => showQcSpec(key),
+});
+// Review + Remediation for RLI render from the structured eval (eval.json).
+let rliFixFocus = null;
+const rliEval = createRliEval({
+  bucket, taskId, rli,
+  onCrit: (n, side) => { rli.resetFilter(); viewCache.delete('rli-rubric'); return showRliView('rubric').then(() => rli.flashCrit(n, side)); },
+  onSpec: (key) => showQcSpec(key),
+  onOpenTab: (key, focus) => { rliFixFocus = focus || null; openDoc(DOCS.find((d) => d.key === key)); },
+  decorateFixDocs: (root) => decorateFixDocs(root),
+  decisionPanel: (findings, checks, verdict, note) => buildChecklistView(findings, checks, verdict, note, { compact: true }),
 });
 const RLI_TABS = [
   { key: 'brief',        label: 'Brief',        open: () => showRliView('brief') },
@@ -404,6 +415,18 @@ async function openDoc(doc, navNode, { refresh = false } = {}) {
   hideTrajToolbar();
   viewerTitle.textContent = doc.file;
   viewReopeners.set(`doc:${doc.key}`, { label: doc.label, reopen: () => openDoc(doc, findDocNav(doc.label)) });
+  // RLI: both tabs are views of one structured eval. Always rebuilt — they are
+  // working surfaces (fix decisions, finding adjudication, live scores).
+  if (meta?.kind === 'rli') {
+    const ev = await api(`/task/${bucket}/${taskId}/eval`).catch(() => null);
+    if (ev) {
+      const focus = rliFixFocus; rliFixFocus = null;
+      const content = doc.key === 'review' ? await rliEval.buildReview(ev) : await rliEval.buildRemediation(ev, focus);
+      mountView(`doc:${doc.key}`, () => content, { refresh: true });
+      addRegenButton(doc);
+      return;
+    }
+  }
   let missing = false;
   // Remediation is a WORKING surface (fix decisions + findings checklist +
   // verdict live below the prose), so it always rebuilds; caching it would
@@ -445,14 +468,16 @@ function addRegenButton(doc) {
   // top of the document pane itself.
   document.querySelector('.doc__regen')?.remove();
   if (me.role !== 'admin') return; // reviewers view docs; only admin generates
+  // RLI runs ONE eval that feeds both tabs, so both buttons run it.
+  const isRli = meta?.kind === 'rli';
   document.getElementById('viewer-body').prepend(
     el('button', {
       class: 'btn doc__regen',
       onclick: async () => {
-        await api(`/task/${bucket}/${taskId}/docgen/${doc.key}`, { method: 'POST' });
+        await api(`/task/${bucket}/${taskId}/docgen/${isRli ? 'review' : doc.key}`, { method: 'POST' });
         watchDoc(doc); // background job; poll + auto-reload, survives navigation
       },
-    }, `Generate ${doc.key}.md`)
+    }, isRli ? 'Run eval' : `Generate ${doc.key}.md`)
   );
 }
 
@@ -1279,7 +1304,11 @@ function wireFixDoc(box, item) {
     // The green text shows what actually LANDED — an edited approval ships the
     // reviewer's version (applied_new), not the model's proposal.
     const landed = i.applied_new ?? i.new;
-    if (landed !== undefined) box.querySelector('.fixdoc__new').textContent = landed === '' ? '(delete)' : String(landed);
+    if (landed !== undefined) {
+      box.querySelector('.fixdoc__new').textContent = box.dataset.verdict
+        ? (String(landed) === 'true' ? 'pass' : 'fail') // RLI verdict flips read pass/fail
+        : landed === '' ? '(delete)' : String(landed);
+    }
   };
   const latestEdit = (i) => (i.edited_from !== undefined && i.edited_from !== null ? ' · edited' : '');
 
@@ -1300,6 +1329,7 @@ function wireFixDoc(box, item) {
       if (r.result === 'AMBIGUOUS') alert(`${item.id}: old matches more than once — route back to the eval.`);
       invalidateRankViews();
       await refresh();
+      document.dispatchEvent(new CustomEvent('fix-decided', { detail: { id: item.id } }));
       return true;
     } catch (e) { alert(e.message); return false; }
   };
@@ -1526,10 +1556,10 @@ async function appendChecklistSections(content) {
 }
 let focusNoteNext = false;
 
-function buildChecklistView(findings, checks, verdict, note) {
-  const container = el('div', { class: 'checklist' });
-  container.append(el('h1', {}, 'Checklist'));
-  container.append(el('p', { class: 'hint-line' },
+function buildChecklistView(findings, checks, verdict, note, { compact = false } = {}) {
+  const container = el('div', { class: `checklist${compact ? ' checklist--compact' : ''}` });
+  if (!compact) container.append(el('h1', {}, 'Checklist'));
+  if (!compact) container.append(el('p', { class: 'hint-line' },
     findings.length
       ? 'Adjudicate each review finding — mark it Done (fixed / verified) or Over-flag (not a real issue) — then record the decision below.'
       : 'No review findings yet (generate the Review to populate them) — you can still record a decision below.'));
@@ -1567,7 +1597,9 @@ function buildChecklistView(findings, checks, verdict, note) {
     recompute();
   }
 
-  if (findings.length) {
+  // Compact mode: the caller renders the rows and drives adjudication here.
+  container.setCheck = onSet;
+  if (findings.length && !compact) {
     const list = el('div', { class: 'check-list' });
     for (const f of findings) list.append(checkRow(f, statusOf, onSet));
     container.append(list);

@@ -1,176 +1,325 @@
-// RLI eval: review.md + remediation.md for an RLI task.
+// RLI eval: one structured findings list per task (eval.json), from which the
+// studio renders both review.md and remediation.md.
 //
-// Same document skeleton as the ACC docs (so the Review / Remediation tabs, the
-// Auto-QC panel, the findings checklist and the fix controls all work
-// unchanged), but graded against the Updated RLI spec (D1–D20) and evidenced
-// the RLI way: criteria, artifacts and preference cells — and the renders
-// themselves, via view_artifact, because most RLI verdicts are visual.
+// Why one list instead of two essays: the old review + remediation ran ~4,000
+// words, said every point four times, and the two docs could contradict each
+// other (a remediation that quietly overturned the review's HARD finding). Now
+// the model returns short, capped fields; the CODE validates them, derives the
+// bucket from the worst severity, builds the fix blocks, and writes both docs —
+// so they can't disagree, and every existing reader of review.md /
+// remediation.md (autoqc tags, findings checklist, fix ledger, auto-bucketing,
+// Acey) keeps working unchanged.
 //
-// This is a human-assisted eval: every finding is a claim the auditor
-// adjudicates in the checklist, and every fix is a proposal they approve,
-// edit or deny. Nothing here changes task.json on its own.
+// Still human-assisted: every finding is a claim the auditor adjudicates, and
+// every fix is a proposal they approve, edit or deny.
 import fs from 'node:fs';
 import path from 'node:path';
 import { runAgentLoop } from './llm.js';
 import { RLI_TOOL_DEFS, makeRliExecutor, rliCanon, rliTaskContext, RLI_CITATION_RULES } from './rli_acey.js';
+import { readRecord } from './rli.js';
+import { RLI_SPEC } from './spec.js';
+
+export const CAPS = { headline: 15, evidence: 45, fixSummary: 14, manualNote: 15, escalate: 30, verdict: 25, maxFindings: 12 };
+const SEVS = ['HARD', 'SOFT', 'INFO'];
+const SIDE_KEY = { rd: 'golden', golden: 'golden', ad1: 'ad1', ad2: 'ad2' };
+const SIDE_LABEL = { golden: 'RD', ad1: 'AD1', ad2: 'AD2' };
+const FIELDS = ['passed', 'justification', 'weight', 'title'];
 
 const EVIDENCE = `
 Evidence discipline (the whole value of this eval):
-- Every finding cites where it lives: [C12](crit://C12), [C12 · AD2](crit://C12/ad2),
-  [Render07.jpg](file://files/golden/Render07.jpg), [RD vs AD1 · Realism](pref://rd_vs_ad1/realism),
-  and the deciding dimension as [D17 Accuracy](spec://D17).
 - A verdict or justification that makes a VISUAL claim is only confirmed or overturned after you
   have looked (view_artifact — for video it shows stills). Claims about duration, resolution,
   orientation, format, loudness, clipping, truncation or silence are settled with probe_media:
-  quote the numbers. Say what you saw or measured, concretely. What neither can settle (3D-only
-  geometry, motion, pacing, voice quality) — say so and mark it for the auditor instead of guessing.
+  quote the numbers. What neither can settle (3D-only geometry, motion, pacing, voice quality)
+  goes in manual_checks instead of being guessed.
 - Penalty criteria: "passed: true" = the defect is PRESENT. Never invert this.
-- The printed RD score is the source of truth for the 97% gate; AD stumping uses the score after
-  your verdict corrections — say both when a correction moves a gate.
 - For every criterion you verify, check TWO things per side: is the verdict right, and does the
   justification describe what is actually in the artifact? A correct verdict with a justification
-  that describes different or opposite geometry/content is an inaccurate justification (D12) — the
-  customer has explicitly flagged inverted, generic and copy-pasted justifications. Grammar-only
-  cleanups are not a substitute: the fix must make the text true to the artifact.
+  describing different or opposite content is an inaccurate justification (D12) — the customer has
+  explicitly flagged inverted, generic and copy-pasted justifications.
 - Read every penalty verdict against its OWN justification: a justification that says the defect is
   absent beside passed:true (or describes it beside passed:false) is an inverted verdict — decidable
-  from the text alone, so check all penalty criteria, not just the ones you sample. Watch negation
-  scope ("with none missing", "does not change the rate" describe passes).
+  from the text alone, so check all penalty criteria. Watch negation scope ("with none missing",
+  "does not change the rate" describe passes).
 - Grounding: for each heavy criterion ask "where does the brief or an input ask for this?". A
-  criterion that grades content, values or style the brief never mentions — often the golden's own
-  choices written up as requirements — is D5/D8 unless a professional standard justifies it; name
-  the brief text you searched. A criterion so specific it describes one model's single observed
-  slip (the customer's example: "'Ugh!' is pronounced 'Ugg!'") is post-hoc — D8.
-- Automated checks (get_checks) are evidence, not verdicts. Confirm each fail with your own read
-  and overturn it if the record says otherwise (e.g. a provenance criterion worded differently).
+  criterion grading content, values or style the brief never mentions — often the golden's own
+  choices written up as requirements — is D5/D8 unless a professional standard justifies it. A
+  criterion so specific it describes one model's single observed slip (the customer's example:
+  "'Ugh!' is pronounced 'Ugg!'") is post-hoc — D8.
+- Check the flips you propose TOGETHER before calling a gate: never report a stumping breach that
+  another flip you also propose would cancel. The studio computes the scores after your fixes.
+- Automated checks (get_checks) are evidence, not verdicts. A failing "Scores reproduce" check means
+  the score gates can't be trusted — that is finding #1. "Justification integrity" hits are exact
+  reuse: confirm which copy is wrong.
 - Budget: spot-verify, don't re-grade everything. Prioritise heavy (|w| ≥ 8) criteria, split
-  verdicts, only-AD1 fails, golden fails, and anything a check flagged. ~12–20 criteria is typical.
+  verdicts, only-AD1 fails, golden fails, and anything a check flagged.
 `.trim();
 
-export const RLI_REVIEW_PROMPT = `
-You are the QC auditor for the RLI queue writing review.md for one task. The reader is a busy QM
-who must adjudicate your findings in seconds. Grade the CONTRIBUTOR'S WORK — brief, rubric,
-verdicts, justifications, preference ranking — against the RLI QC spec (D1–D20 below).
+export const RLI_EVAL_PROMPT = `
+You are the QC auditor for the RLI queue. Grade the CONTRIBUTOR'S WORK — brief, rubric, verdicts,
+justifications, preference ranking — against the RLI QC spec (D1–D20 below). The reader is a busy
+QM who must understand each finding in five seconds and act on it in one click.
 
-Work plan: task_overview → get_checks (a failing "Scores reproduce" check means the score gates
-can't be trusted — say so first; "Justification integrity" hits are exact reuse, confirm which copy
-is wrong) → the brief (in context) → get_criteria with narrow filters →
-view_artifact on the refs + the three sides for the criteria you verify → get_preference and judge
-the 1–7 ratings against what you saw → coverage: list the brief's explicit requests and the
-professional nuances of this domain, and check each has a criterion.
+Work plan: task_overview → get_checks → the brief (in context) → get_criteria with narrow filters →
+view_artifact / probe_media on the refs and the three sides for the criteria you verify →
+get_preference, judged against what you saw → coverage: the brief's explicit requests and the
+professional nuances of the domain each have a criterion.
 
-Output ONLY the markdown document, exactly this structure:
+OUTPUT: ONLY one JSON object, no prose, no code fence. Shape:
+{
+  "verdict": "<≤${CAPS.verdict} words: the deciding problem(s), plain English — no bucket word, no D-codes (the UI shows both)>",
+  "findings": [
+    {
+      "sev": "HARD" | "SOFT" | "INFO",
+      "dim": "D17",
+      "crit": 31,             // C-number this is about, or null for rubric/brief/task-level
+      "side": "ad2",          // "rd" | "ad1" | "ad2" | null
+      "headline": "<≤${CAPS.headline} words — the finding itself, e.g. 'Passed on paving that isn't in the render'>",
+      "evidence": "<≤${CAPS.evidence} words, ≤2 sentences — what you SAW or measured, with citation links>",
+      "owner": "contributor" | "QM" | "ops",
+      "fix": null | {
+        "summary": "<≤${CAPS.fixSummary} words, imperative — e.g. 'Flip to fail; describe the blank ground plane'>",
+        "edits": [ { "crit": 31, "side": "ad2", "field": "passed", "old": "true", "new": "false" },
+                   { "crit": 31, "side": "ad2", "field": "justification", "old": "<exact current text or substring>", "new": "<replacement>" } ],
+        "manual": null | "<paste-ready text when it can't be a field edit, e.g. a whole new criterion: text + weight + category + RD/AD1/AD2 verdicts>"
+      }
+    }
+  ],
+  "manual_checks": [ "<≤${CAPS.manualNote} words each — what only a human can check, and where>" ],
+  "escalate": null | "<≤${CAPS.escalate} words — only if edits can't salvage the task (brief/inputs insufficient, golden below professional grade, suspected AI-generated golden)>",
+  "verified": { "criteria": <n criteria you checked against artifacts>, "artifacts": <n files you opened> }
+}
 
-# Review — <task_id>
-
-\`\`\`autoqc
-One line per spec dimension this task trips, worst first: "<D-key> — <dimension>: <one-phrase reason>".
-Be comprehensive (every dimension with evidence, Fail or Non-fail). Sentence case, no markdown.
-If nothing trips, the single line: NONE.
-\`\`\`
-
-\`\`\`alerts
-Only true blockers, worst first: "Short title — one-sentence detail". Otherwise the single line: NONE.
-\`\`\`
-
-## Verdict
-**Proposed bucket: HARD_FAIL | SOFT_FAIL | PASS** — HARD_FAIL if any dimension is a Fail (1),
-SOFT_FAIL if none fail but any is a Non-fail (3), PASS only if every dimension is No issues (5).
-Then at most 3 sentences: the deciding dimension(s) and why.
-
-## At a glance
-A table: domain · timeline · AD1/AD2 models · RD / AD1 / AD2 printed scores vs gates · criteria
-count · weight mix (format/brief/quality) · criteria you verified by eye (count) · verdicts you
-would flip (count, and the AD score after flips if it moves a gate).
-
-## Findings
-One block per finding, most severe first, each separated by ---:
-### [HARD|SOFT|INFO] F<n> — <short title>
-- **Claim:** what the contributor asserted (quote the criterion text, verdict or justification) — cite it
-- **Evidence:** what you read or SAW, with citations to the files/cells you checked
-- **Rule:** the ONE spec dimension it violates, as a spec:// link — mandatory on HARD and SOFT
-- **Impact:** which side(s), and whether a gate or the grade moves
-HARD = the finding alone makes a dimension a Fail (1); SOFT = a Non-fail (3); INFO = worth knowing,
-no grade impact. One problem per block. Under ~8 lines each. No filler.
-
-## Informational
-Non-finding observations, one bullet each (e.g. things only a human can check — 3D-only geometry,
-audio, video — with what to look for).
-
-CLEAN-PASS SHORTCUT: if every dimension is No issues after your checks, keep it light: autoqc NONE,
-alerts NONE, a one-sentence Verdict, the At a glance table, and one Findings line: "No findings —
-N criteria verified against the artifacts. Flag for a deeper audit if anything looks off."
+Rules for findings:
+- At most ${CAPS.maxFindings}. One problem each, most severe first. A wrong verdict is ONE finding per
+  criterion (crit set, its flip + justification rewrite as the edits) — never bundle flips on several
+  criteria. Merge only pattern findings with no verdict flips: "24 justifications copied across
+  responses" is ONE finding, not 24.
+- HARD = alone makes a dimension a Fail (1). SOFT = a Non-fail (3). INFO = no grade impact.
+- dim is mandatory on HARD and SOFT: the ONE deciding dimension.
+- Word caps are enforced by code and over-long output is sent back. Headlines state the problem,
+  not the evidence: no number soup, no "Note that", no hedging.
+- Edits: field is "passed" (old/new "true"/"false"), "justification" or "title" (old = EXACT current
+  text or an exact substring — read it with get_criteria first), or "weight" (old/new numbers as
+  strings). For the brief use {"field":"brief","old":…,"new":…} with crit/side null. crit is the
+  C-number (1-based). side is required for passed/justification. A verdict flip usually needs a
+  justification rewrite beside it. Anything else (a new criterion, re-scoring) goes in "manual".
+- Clean task: findings [], a one-line verdict, manual_checks for what you could not see.
 
 ${EVIDENCE}
 `.trim();
 
-export const RLI_REMEDIATION_PROMPT = `
-You are the QC auditor for the RLI queue writing remediation.md — a pinpoint repair manual for the
-contributor's fixes. Verify anything you rely on from review.md with your tools first. Output ONLY
-the markdown document:
+// ------------------------------------------------------------ validation
 
-# Remediation — <task_id>
+const words = (s) => String(s || '').trim().split(/\s+/).filter(Boolean).length;
 
-\`\`\`alerts
-One "title — detail" line if the task cannot be salvaged by edits (e.g. brief/input sufficiency
-fail, golden not professional grade), otherwise: NONE
-\`\`\`
+function extractJson(text) {
+  const s = String(text || '').trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
+  const a = s.indexOf('{'), b = s.lastIndexOf('}');
+  if (a < 0 || b < a) throw new Error('no JSON object in the reply');
+  return JSON.parse(s.slice(a, b + 1));
+}
 
-## Fix list
-One block per fix, in the order they should be done, separated by --- :
-### Fix <n> — <imperative title> (owner: contributor | QM | ops)
-- **Go to:** the exact place — a criterion citation, a file citation, a preference cell, or the brief
-  section
-- **Problem:** one line ending with the violated dimension as a spec:// link
-- **Fix:** the concrete change — before → after for text; the exact new verdict or weight; for a
-  missing criterion, the full criterion text + weight + category ready to paste
-- **Verify:** how to confirm it landed (which file to look at, what the score becomes)
-- When the fix is a single-field edit to the record, ALSO emit a machine-applicable block the
-  auditor can apply with one click — single-line JSON inside a \`\`\`fix fence:
-  \`\`\`fix
-  {"id":"F1","rule":"D12","class":"soft","status":"PROPOSED","owner":"contributor","path":"/rubric_eval/criteria/0/ad2/justification","occurrence":1,"old":"<exact current substring>","new":"<replacement>"}
-  \`\`\`
-  JSON pointers into task.json (criteria are 0-based: C1 is /rubric_eval/criteria/0):
-    /rubric_eval/criteria/<i>/<golden|ad1|ad2>/justification   (string; "old" = exact substring)
-    /rubric_eval/criteria/<i>/<golden|ad1|ad2>/passed          (boolean; old "true", new "false")
-    /rubric_eval/criteria/<i>/weight                           (number; old "6", new "9")
-    /rubric_eval/criteria/<i>/title                            (string; criterion text)
-    /brief                                                     (string; exact substring)
-  "old" must be copied EXACTLY from the record (read it with get_criteria first). class is
-  "hard" or "soft". Adding a new criterion or re-scoring cannot be a fix block — describe it in the
-  prose block only (path would be null). Flipping a verdict changes the score: say so in Verify.
-
-## Escalate instead if
-Bullets: when edits are the wrong response (unsalvageable brief/inputs, golden below professional
-grade, suspected fabricated or AI-generated golden) and who to escalate to (QM → Luis / Ernesto).
-
-CLEAN-PASS SHORTCUT: alerts NONE, one line "No fixes required — clean.", then Escalate instead if.
-
-${EVIDENCE}
-`.trim();
-
-export async function generateRliDoc(dir, which, { onEvent, onUsage, id = path.basename(dir) } = {}) {
-  const isReview = which === 'review';
-  const system = [
-    isReview ? RLI_REVIEW_PROMPT : RLI_REMEDIATION_PROMPT,
-    rliCanon(),
-    RLI_CITATION_RULES,
-    rliTaskContext(dir),
-  ].join('\n\n');
-  const user = [`Generate ${which}.md for task ${id}. Use the complete 24-char task id.`];
-  if (!isReview) {
-    const rp = path.join(dir, 'review.md');
-    user.push(fs.existsSync(rp) ? `Current review.md:\n\n${fs.readFileSync(rp, 'utf8').slice(0, 30_000)}` : 'No review.md exists yet — investigate from scratch.');
+// Resolve an edit against the live record → a fix-ledger block, or an error.
+function resolveEdit(rec, e, n) {
+  if (e.field === 'brief') {
+    if (typeof e.old !== 'string' || !e.old || !String(rec.brief || '').includes(e.old)) return { error: `edit ${n}: brief "old" is not an exact substring of the brief` };
+    return { path: '/brief', old: e.old, new: String(e.new ?? '') };
   }
-  const { final } = await runAgentLoop({
-    messages: [{ role: 'system', content: system }, { role: 'user', content: user.join('\n\n') }],
-    tools: RLI_TOOL_DEFS,
-    executor: makeRliExecutor(dir),
-    onEvent,
-    maxSteps: 40,
-    onUsage,
+  if (!FIELDS.includes(e.field)) return { error: `edit ${n}: field must be one of ${FIELDS.join(', ')}, brief` };
+  const crits = rec.rubric_eval?.criteria || [];
+  const i = Number(e.crit) - 1;
+  if (!Number.isInteger(i) || !crits[i]) return { error: `edit ${n}: crit C${e.crit} does not exist (1–${crits.length})` };
+  const c = crits[i];
+  if (e.field === 'weight' || e.field === 'title') {
+    const cur = String(e.field === 'weight' ? c.weight : c.title ?? '');
+    if (e.field === 'weight' ? String(e.old) !== cur : !cur.includes(String(e.old || ''))) return { error: `edit ${n}: C${e.crit} ${e.field} is "${cur.slice(0, 80)}", not "${String(e.old).slice(0, 80)}"` };
+    return { path: `/rubric_eval/criteria/${i}/${e.field}`, old: String(e.old), new: String(e.new ?? '') };
+  }
+  const side = SIDE_KEY[String(e.side || '').toLowerCase()];
+  if (!side) return { error: `edit ${n}: side must be rd, ad1 or ad2` };
+  const v = c[side] || {};
+  if (e.field === 'passed') {
+    const cur = String(v.passed);
+    if (String(e.old) !== cur) return { error: `edit ${n}: C${e.crit}·${SIDE_LABEL[side]} passed is ${cur}, not ${e.old}` };
+    if (!['true', 'false'].includes(String(e.new)) || String(e.new) === cur) return { error: `edit ${n}: passed must flip to the other boolean` };
+    return { path: `/rubric_eval/criteria/${i}/${side}/passed`, old: cur, new: String(e.new) };
+  }
+  const cur = String(v.justification || '');
+  if (!e.old || !cur.includes(String(e.old))) return { error: `edit ${n}: C${e.crit}·${SIDE_LABEL[side]} justification does not contain "${String(e.old || '').slice(0, 80)}" — copy it exactly` };
+  return { path: `/rubric_eval/criteria/${i}/${side}/justification`, old: String(e.old), new: String(e.new ?? '') };
+}
+
+// Returns { ev, errors }. ev is normalized; errors are what the model must fix.
+export function validateEval(raw, dir) {
+  const rec = readRecord(dir);
+  const nCrit = rec.rubric_eval?.criteria?.length || 0;
+  const errors = [];
+  const cap = (label, s, max) => { if (words(s) > max) errors.push(`${label} is ${words(s)} words (max ${max}): "${String(s).slice(0, 90)}…"`); };
+  if (!raw || typeof raw !== 'object') return { ev: null, errors: ['reply is not a JSON object'] };
+  cap('verdict', raw.verdict, CAPS.verdict);
+  const findings = Array.isArray(raw.findings) ? raw.findings : [];
+  if (!Array.isArray(raw.findings)) errors.push('findings must be an array');
+  if (findings.length > CAPS.maxFindings) errors.push(`${findings.length} findings (max ${CAPS.maxFindings}) — merge repeats`);
+  const out = findings.slice(0, CAPS.maxFindings).map((f, k) => {
+    const id = `F${k + 1}`;
+    const sev = String(f.sev || '').toUpperCase();
+    if (!SEVS.includes(sev)) errors.push(`${id}: sev must be HARD, SOFT or INFO`);
+    const dim = f.dim ? String(f.dim).toUpperCase() : null;
+    if (dim && !/^D([1-9]|1\d|20)$/.test(dim)) errors.push(`${id}: dim "${f.dim}" is not D1–D20`);
+    if (!dim && sev !== 'INFO') errors.push(`${id}: dim is required on ${sev}`);
+    const crit = f.crit == null ? null : Number(f.crit);
+    if (crit != null && !(crit >= 1 && crit <= nCrit)) errors.push(`${id}: crit C${f.crit} does not exist (1–${nCrit})`);
+    const side = f.side ? SIDE_KEY[String(f.side).toLowerCase()] || null : null;
+    cap(`${id} headline`, f.headline, CAPS.headline);
+    cap(`${id} evidence`, f.evidence, CAPS.evidence);
+    let fix = null;
+    if (f.fix) {
+      cap(`${id} fix.summary`, f.fix.summary, CAPS.fixSummary);
+      const edits = [];
+      (f.fix.edits || []).forEach((e, j) => {
+        const r = resolveEdit(rec, e, `${id}.${j + 1}`);
+        if (r.error) errors.push(r.error);
+        else edits.push({ ...r, crit: e.crit ?? null, side: SIDE_KEY[String(e.side || '').toLowerCase()] || null, field: e.field });
+      });
+      // One row = one criterion: verdict flips on several criteria are several
+      // findings, each with its own score impact and decision.
+      const flipCrits = [...new Set((f.fix.edits || []).filter((e) => e.field === 'passed').map((e) => Number(e.crit)))];
+      if (flipCrits.length > 1 || (flipCrits.length === 1 && crit != null && flipCrits[0] !== crit)) {
+        errors.push(`${id}: verdict flips on ${flipCrits.map((n) => `C${n}`).join(', ')} — split into one finding per criterion, each with crit set to that criterion`);
+      }
+      fix = { summary: String(f.fix.summary || ''), edits, manual: f.fix.manual ? String(f.fix.manual) : null };
+      if (!edits.length && !fix.manual && !fix.summary) fix = null;
+    }
+    return { id, sev, dim, crit: crit >= 1 && crit <= nCrit ? crit : null, side, headline: String(f.headline || '').trim(), evidence: String(f.evidence || '').trim(),
+      owner: ['contributor', 'QM', 'ops'].includes(f.owner) ? f.owner : 'contributor', fix };
   });
-  return final;
+  const manual = (Array.isArray(raw.manual_checks) ? raw.manual_checks : []).map(String).slice(0, 6);
+  manual.forEach((m, k) => cap(`manual_checks[${k}]`, m, CAPS.manualNote));
+  if (raw.escalate) cap('escalate', raw.escalate, CAPS.escalate);
+  // The bucket is the worst severity — derived, never taken from the model.
+  const bucket = out.some((f) => f.sev === 'HARD') ? 'HARD_FAIL' : out.some((f) => f.sev === 'SOFT') ? 'SOFT_FAIL' : 'PASS';
+  const ev = {
+    version: 1,
+    task_id: rec.task_id,
+    generated_at: new Date().toISOString(),
+    bucket,
+    verdict: String(raw.verdict || '').trim(),
+    findings: out,
+    manual_checks: manual,
+    escalate: raw.escalate ? String(raw.escalate).trim() : null,
+    verified: { criteria: Number(raw.verified?.criteria) || 0, artifacts: Number(raw.verified?.artifacts) || 0 },
+  };
+  return { ev, errors };
+}
+
+// ------------------------------------------------------------ run
+
+export async function runRliEval(dir, { onEvent, onUsage, id = path.basename(dir) } = {}) {
+  const system = [RLI_EVAL_PROMPT, rliCanon(), RLI_CITATION_RULES, rliTaskContext(dir)].join('\n\n');
+  const messages = [{ role: 'system', content: system }, { role: 'user', content: `Evaluate task ${id}. Reply with the JSON object only.` }];
+  const { messages: added, final } = await runAgentLoop({ messages, tools: RLI_TOOL_DEFS, executor: makeRliExecutor(dir), onEvent, maxSteps: 40, onUsage });
+
+  // Keep the raw answer first — an hour of looking at renders must never be
+  // lost to a failure in what comes after.
+  fs.writeFileSync(path.join(dir, 'eval.raw.txt'), final || '');
+  let text = final, ev = null, errors = [];
+  let best = null; // the best parse so far, errors and all
+  // One repair round: the model fixes its own JSON against the exact errors,
+  // with its whole investigation in context. It runs through the tool loop
+  // because the proxy rejects a tool-bearing history sent without tools (and
+  // re-reading a criterion to copy an exact "old" string is legitimate).
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try { ({ ev, errors } = validateEval(extractJson(text), dir)); } catch (e) { ev = null; errors = [`invalid JSON: ${e.message}`]; }
+    if (ev && (!best || errors.length < best.errors.length)) best = { ev, errors };
+    if (!errors.length || attempt === 1) break;
+    onEvent?.({ type: 'status', text: `repairing ${errors.length} validation issue(s)` });
+    try {
+      const r = await runAgentLoop({
+        messages: [...messages, ...added,
+          { role: 'user', content: `Your JSON has these problems — fix them and return the corrected JSON object only:\n- ${errors.join('\n- ')}` }],
+        tools: RLI_TOOL_DEFS, executor: makeRliExecutor(dir), onEvent, maxSteps: 8, onUsage,
+      });
+      text = r.final || '';
+    } catch (e) {
+      onEvent?.({ type: 'status', text: `repair failed: ${e.message}` });
+      break;
+    }
+  }
+  if (best) ({ ev, errors } = best);
+  if (!ev) throw new Error(`eval returned unusable JSON: ${errors.join('; ').slice(0, 300)}`);
+  // Whatever is still wrong after the repair stays visible rather than dropped.
+  ev.validation = errors;
+  fs.writeFileSync(path.join(dir, 'eval.json'), JSON.stringify(ev, null, 1));
+  return ev;
+}
+
+export function readEval(dir) {
+  try { return JSON.parse(fs.readFileSync(path.join(dir, 'eval.json'), 'utf8')); } catch { return null; }
+}
+
+// ------------------------------------------------------------ markdown (compat)
+
+const dimName = (d) => {
+  const i = Number(String(d || '').replace(/\D/g, '')) - 1;
+  return RLI_SPEC?.dimensions?.[i]?.name || d;
+};
+const whereOf = (f) => (f.crit ? `C${f.crit}${f.side ? ` · ${SIDE_LABEL[f.side]}` : ''}` : 'Task');
+const whereLink = (f) => (f.crit ? `[${whereOf(f)}](crit://C${f.crit}${f.side ? `/${f.side === 'golden' ? 'rd' : f.side}` : ''})` : 'Task-level');
+export const fixBlockId = (f, j) => `${f.id}${String.fromCharCode(97 + j)}`;
+
+export function renderReviewMd(ev) {
+  const hard = ev.findings.filter((f) => f.sev === 'HARD');
+  const tagged = ev.findings.filter((f) => f.dim && f.sev !== 'INFO');
+  return [
+    `# Review — ${ev.task_id}`, '',
+    '```autoqc',
+    ...(tagged.length ? tagged.map((f) => `${f.dim} — ${dimName(f.dim)}: ${f.headline}`) : ['NONE']),
+    '```', '',
+    '```alerts',
+    ...(hard.length ? hard.map((f) => `${f.headline} — ${whereOf(f)}`) : ['NONE']),
+    '```', '',
+    '## Verdict',
+    `**Proposed bucket: ${ev.bucket}** — ${ev.verdict}`, '',
+    '## Findings',
+    ...(ev.findings.length ? ev.findings.flatMap((f) => [
+      `### [${f.sev}] ${f.id} — ${f.headline}`,
+      `- **Where:** ${whereLink(f)}`,
+      `- **Evidence:** ${f.evidence}`,
+      f.dim ? `- **Rule:** [${f.dim} ${dimName(f.dim)}](spec://${f.dim})` : null,
+      f.fix?.summary ? `- **Fix:** ${f.fix.summary}` : null,
+      '',
+    ].filter((x) => x !== null)) : [`No findings — ${ev.verified.criteria} criteria verified against the artifacts.`, '']),
+    ev.manual_checks.length ? '## Check by hand' : null,
+    ...ev.manual_checks.map((m) => `- ${m}`),
+  ].filter((x) => x !== null).join('\n') + '\n';
+}
+
+export function renderRemediationMd(ev) {
+  const withFix = ev.findings.filter((f) => f.fix);
+  return [
+    `# Remediation — ${ev.task_id}`, '',
+    '```alerts', ev.escalate ? `Escalate — ${ev.escalate}` : 'NONE', '```', '',
+    '## Fix list',
+    ...(withFix.length ? withFix.flatMap((f) => [
+      `### Fix ${f.id} — ${f.fix.summary || f.headline} (owner: ${f.owner})`,
+      `- **Go to:** ${whereLink(f)}${f.dim ? ` · [${f.dim}](spec://${f.dim})` : ''}`,
+      ...f.fix.edits.map((e, j) => ['```fix', JSON.stringify({ id: fixBlockId(f, j), rule: f.dim || 'D16', class: f.sev === 'HARD' ? 'hard' : 'soft', status: 'PROPOSED', owner: f.owner, path: e.path, occurrence: 1, old: e.old, new: e.new }), '```'].join('\n')),
+      f.fix.manual ? `\n**Apply by hand:**\n\n> ${f.fix.manual.replace(/\n/g, '\n> ')}` : null,
+      '',
+    ].filter((x) => x !== null)) : ['No fixes required — clean.', '']),
+  ].join('\n') + '\n';
+}
+
+// Entry point used by docgen: review runs the eval; remediation re-renders
+// from eval.json (running the eval only if there is none yet).
+export async function generateRliDoc(dir, which, opts = {}) {
+  let ev = which === 'review' ? null : readEval(dir);
+  if (!ev) ev = await runRliEval(dir, opts);
+  const review = renderReviewMd(ev), remediation = renderRemediationMd(ev);
+  // Both docs always come from the same eval.json, so write the sibling too.
+  fs.writeFileSync(path.join(dir, which === 'review' ? 'remediation.md' : 'review.md'), which === 'review' ? remediation : review);
+  return which === 'review' ? review : remediation;
 }
 
 // "**Proposed bucket: HARD_FAIL**" → 'HARD_FAIL' (null when absent or malformed).

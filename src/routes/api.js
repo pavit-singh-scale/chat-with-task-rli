@@ -19,6 +19,7 @@ import { TOOL_DEFS, makeExecutor } from '../tools.js';
 import { generateDoc, taskContext, CITATION_RULES } from '../docgen.js';
 import { QUALITY_CANON, getRubric, saveRubricCsv } from '../spec.js';
 import { readRliIn, isRliTask } from '../rli.js';
+import { readEval } from '../rli_docgen.js';
 import { RLI_CHAT_PROMPT, RLI_CITATION_RULES, RLI_TOOL_DEFS, rliCanon, rliTaskContext, makeRliExecutor } from '../rli_acey.js';
 import { recordUsage, readUsage, usageCsv } from '../usage.js';
 import { enqueueDocs, jobSummary, statusFor } from '../jobs.js';
@@ -356,6 +357,14 @@ api.get('/task/:bucket/:id/files', wrap(async (req, res) => res.json(listFiles(r
 
 // RLI: the normalized record + deterministic spec checks for the task page.
 api.get('/task/:bucket/:id/rli', wrap(async (req, res) => res.json(readRliIn(taskDir(req.params.bucket, req.params.id)))));
+
+// RLI: the structured eval both the Review and Remediation tabs render from.
+// 404 = no structured eval yet (the tabs fall back to the markdown docs).
+api.get('/task/:bucket/:id/eval', wrap(async (req, res) => {
+  const ev = readEval(taskDir(req.params.bucket, req.params.id));
+  if (!ev) throw httpError(404, 'no eval.json for this task');
+  res.json(ev);
+}));
 
 // RLI: stream any artifact byte-for-byte with its real content type (range
 // requests work, so video/audio seek). Traversal-guarded like every task read.
