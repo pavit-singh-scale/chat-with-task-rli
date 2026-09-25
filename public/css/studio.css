@@ -3804,3 +3804,14 @@ button.rli-critchip:hover, button.rli-spec:hover { border-color: var(--accent); 
 .rli-3d--compact .rli-3d__bar { bottom: 8px; padding: 3px; }
 .rli-3d--compact .rli-3d__b { font-size: 10.5px; padding: 3px 7px; }
 .rli-3d--compact .rli-3d__hint { display: none; }
+.rli-justs { align-items: start; }
+.rli-clamp.is-open { display: block; -webkit-line-clamp: unset; line-clamp: unset; overflow: visible; }
+.rli-justcard.is-open { grid-column: 1 / -1; }
+.rli-justs { grid-template-columns: minmax(0, 1fr); gap: 6px; }
+.rli-justcard.is-open { grid-column: auto; }
+.rli-justcard { display: grid; grid-template-columns: 120px minmax(0, 1fr) auto; gap: 4px 14px; align-items: start; padding: 10px 14px; }
+.rli-justcard__head { margin: 0; flex-direction: column; gap: 0; }
+.rli-justcard__head .hint-line { font-size: 11px; }
+.rli-justcard .rli-clamp { -webkit-line-clamp: 2; }
+.rli-justcard .rli-clamp.is-open { -webkit-line-clamp: unset; }
+.rli-justcard > .link { white-space: nowrap; padding-top: 2px; }

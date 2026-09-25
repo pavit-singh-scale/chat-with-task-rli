@@ -401,7 +401,7 @@ export function createRli({ bucket, taskId, onCrit, onSpec, onOpenDoc }) {
     const host = el('div', { class: `rli-3d${compact ? ' rli-3d--compact' : ''}`, tabindex: '0' });
     const status = el('div', { class: 'rli-3d__status' }, 'Loading 3D viewer…');
     const bar = el('div', { class: 'rli-3d__bar' });
-    const hint = el('div', { class: 'rli-3d__hint' }, 'Drag orbit · Right-drag pan · Scroll zoom · Double-click focus');
+    const hint = el('div', { class: 'rli-3d__hint' }, 'Drag orbit · Right-drag or ⇧-drag pan · Pinch / scroll zoom · Double-click focus');
     host.append(status, bar, hint);
     (async () => {
       try {
@@ -418,7 +418,10 @@ export function createRli({ bucket, taskId, onCrit, onSpec, onOpenDoc }) {
         scene.add(new T.HemisphereLight(0xffffff, 0x3a3a44, 1.15));
         const key = new T.DirectionalLight(0xffffff, 1.1); scene.add(key);
         const controls = new OrbitControls(camera, renderer.domElement);
-        Object.assign(controls, { enableDamping: true, dampingFactor: 0.12, screenSpacePanning: true, zoomToCursor: true, zoomSpeed: 1.1, rotateSpeed: 0.8, minDistance: 0, maxDistance: Infinity });
+        // Zoom is ours, not OrbitControls': its wheel handler moves one fixed step
+        // per event, which lurches on a trackpad (dozens of tiny events per swipe)
+        // and crawls on pinch. See the wheel handler below.
+        Object.assign(controls, { enableDamping: true, dampingFactor: 0.12, screenSpacePanning: true, enableZoom: false, rotateSpeed: 0.8 });
 
         const url = rawUrl(f.viewPath || f.path);
         const ext = (f.viewPath || f.name).split('.').pop().toLowerCase();
@@ -502,6 +505,41 @@ export function createRli({ bucket, taskId, onCrit, onSpec, onOpenDoc }) {
         { const d = new T.Vector3(...DIRS.fit).normalize(); camera.position.copy(center).add(d.multiplyScalar((radius / Math.sin((camera.fov * Math.PI) / 360)) * 1.05)); controls.target.copy(center); }
         camera.near = radius / 2000; camera.far = Math.max(radius, fullSize.length()) * 200; camera.updateProjectionMatrix();
 
+        // Gesture-aware zoom toward the cursor, proportional to the gesture:
+        //   pinch (ctrl+wheel on macOS)     → fast, smooth
+        //   two-finger scroll (pixel deltas) → gentle, continuous
+        //   mouse wheel (line/large deltas)  → ~12% per notch
+        // The camera and orbit target both slide toward the point under the
+        // cursor on the plane through the target, so what you point at stays put.
+        const ndc = new T.Vector2();
+        const zoomRay = new T.Raycaster();
+        renderer.domElement.addEventListener('wheel', (e) => {
+          e.preventDefault();
+          anim = null;
+          hint.classList.add('gone');
+          let dy = e.deltaY;
+          if (e.deltaMode === 1) dy *= 16; else if (e.deltaMode === 2) dy *= 400;
+          const k = e.ctrlKey ? 0.012 : Math.abs(dy) >= 50 && Number.isInteger(dy) ? 0.0012 : 0.0035;
+          const factor = Math.exp(Math.max(-0.5, Math.min(0.5, dy * k)));  // >1 = out
+          const r = renderer.domElement.getBoundingClientRect();
+          ndc.set(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
+          zoomRay.setFromCamera(ndc, camera);
+          const viewDir = controls.target.clone().sub(camera.position).normalize();
+          const plane = new T.Plane().setFromNormalAndCoplanarPoint(viewDir, controls.target);
+          const p = new T.Vector3();
+          if (!zoomRay.ray.intersectPlane(plane, p)) p.copy(controls.target);
+          camera.position.sub(p).multiplyScalar(factor).add(p);
+          controls.target.sub(p).multiplyScalar(factor).add(p);
+        }, { passive: false });
+        // Safari sends pinch as gesture events rather than ctrl+wheel.
+        let gScale = 1;
+        renderer.domElement.addEventListener('gesturestart', (e) => { e.preventDefault(); gScale = 1; });
+        renderer.domElement.addEventListener('gesturechange', (e) => {
+          e.preventDefault();
+          const f = gScale / e.scale; gScale = e.scale;
+          camera.position.sub(controls.target).multiplyScalar(f).add(controls.target);
+        });
+
         // Double-click: orbit around the point under the cursor.
         const ray = new T.Raycaster();
         renderer.domElement.addEventListener('dblclick', (e) => {
@@ -540,7 +578,10 @@ export function createRli({ bucket, taskId, onCrit, onSpec, onOpenDoc }) {
           else if (k === 'g') { gridBtn.click(); e.stopPropagation(); }
           else if (k === 'a') { flyTo('all', full.getCenter(new T.Vector3()), null, fullRadius); e.stopPropagation(); }
         });
-        renderer.domElement.addEventListener('pointerdown', () => { anim = null; host.focus({ preventScroll: true }); hint.classList.add('gone'); });
+        renderer.domElement.addEventListener('pointerdown', (e) => {
+          anim = null; host.focus({ preventScroll: true }); hint.classList.add('gone');
+          controls.mouseButtons.LEFT = e.shiftKey || e.metaKey ? T.MOUSE.PAN : T.MOUSE.ROTATE;
+        }, true);
 
         let alive = true;
         const ease = (x) => 1 - Math.pow(1 - x, 3);
@@ -714,10 +755,11 @@ export function createRli({ bucket, taskId, onCrit, onSpec, onOpenDoc }) {
       el('div', { class: 'rli-justs' }, comps.map((c) => {
         const body = el('div', { class: 'cb-prose rli-clamp' });
         body.innerHTML = renderMarkdown(c.justification || '_(none)_');
-        const box = el('div', { class: 'rli-justcard' },
+        let box;
+        box = el('div', { class: 'rli-justcard' },
           el('div', { class: 'rli-justcard__head' }, el('b', {}, `${c.left} vs ${c.right}`), el('span', { class: 'hint-line' }, 'justification')),
           body,
-          el('button', { type: 'button', class: 'link', onclick: (e) => { const open = body.classList.toggle('is-open'); e.currentTarget.textContent = open ? 'Show less' : 'Read all'; } }, 'Read all'));
+          el('button', { type: 'button', class: 'link', onclick: (e) => { const open = body.classList.toggle('is-open'); box.classList.toggle('is-open', open); e.currentTarget.textContent = open ? 'Show less' : 'Read all'; } }, 'Read all'));
         return box;
       })),
       t.pref.rd_better_than_ads != null ? el('p', { class: 'hint-line' }, `Contributor marked RD better than the ADs: ${t.pref.rd_better_than_ads ? 'yes' : 'no'}.`) : null,
