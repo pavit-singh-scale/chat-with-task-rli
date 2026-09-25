@@ -152,6 +152,24 @@ export function createRli({ bucket, taskId, onCrit, onSpec, onOpenDoc }) {
 
   // One side (RD / AD1 / AD2 / inputs): the 3D model leads — it's what these
   // tasks are graded on — then renders, then media, then everything else.
+  // "2:23 · 1280×720 · 30 fps · 48 kHz 24-bit stereo · peak −4.7 dB" + flags.
+  function mediaLine(f) {
+    const m = f.media;
+    if (!m) return null;
+    const dur = m.duration_s != null ? `${Math.floor(m.duration_s / 60)}:${String(Math.round(m.duration_s % 60)).padStart(2, '0')}` : null;
+    const v = m.video, a = m.audio;
+    const bits = [
+      dur,
+      v && `${v.width}×${v.height}`, v?.fps && `${v.fps} fps`,
+      a && [a.sample_rate && `${a.sample_rate / 1000} kHz`, a.bit_depth && `${a.bit_depth}-bit`, a.channels === 1 ? 'mono' : a.channels === 2 ? 'stereo' : a.channels && `${a.channels} ch`].filter(Boolean).join(' '),
+      a?.peak_db != null && `peak ${a.peak_db} dB`,
+      v && !a && 'no audio',
+    ].filter(Boolean);
+    return el('div', { class: 'rli-mline' },
+      el('span', {}, bits.join(' · ')),
+      ...(m.flags || []).map((x) => el('span', { class: 'rli-mline__flag' }, x)));
+  }
+
   function sideColumn(t, side, { dense = false } = {}) {
     const files = t.files[side] || [];
     const of = (k) => files.filter((f) => f.kind === k);
@@ -177,10 +195,12 @@ export function createRli({ bucket, taskId, onCrit, onSpec, onOpenDoc }) {
       images.length ? group('Renders & images', images.length, el('div', { class: `rli-tiles${dense ? ' rli-tiles--dense' : ''}` }, images.map((f) => fileTile(t, f, { list: files })))) : null,
       videos.length ? group('Video', videos.length, el('div', { class: 'rli-vids' }, videos.map((f) => el('div', { class: 'rli-vid' },
         el('video', { src: rawUrl(f.path), controls: '', preload: 'metadata' }),
-        el('button', { type: 'button', class: 'rli-frow__name', onclick: () => openViewer(t, f, files) }, f.rel))))) : null,
+        el('button', { type: 'button', class: 'rli-frow__name', onclick: () => openViewer(t, f, files) }, f.rel),
+        mediaLine(f))))) : null,
       audio.length ? group('Audio', audio.length, el('div', { class: 'rli-audio' }, audio.map((f) => el('div', { class: 'rli-audio__row' },
         el('span', { class: 'rli-audio__name', title: f.rel }, f.rel),
-        el('audio', { controls: '', preload: 'none', src: rawUrl(f.path) }))))) : null,
+        el('audio', { controls: '', preload: 'none', src: rawUrl(f.path) }),
+        mediaLine(f))))) : null,
       pdfs.length ? group('PDF', pdfs.length, fileList(t, pdfs, files)) : null,
       rest.length ? group('Source & other files', rest.length, fileList(t, rest, files)) : null,
     );

@@ -223,7 +223,7 @@ export async function pipelineOverview(opts = {}) {
     levels.set(lvl, rec);
   };
   for (const r of dist.rows) {
-    bump(String(r.review_level), r.status === 'pending' ? 'pending' : 'other', Number(r.tasks) || 0);
+    bump(String(r.review_level), r.status === 'pending' || r.status === 'paused' ? 'pending' : 'other', Number(r.tasks) || 0);
   }
   for (const r of aht.rows) {
     const lvl = String(r.review_level);

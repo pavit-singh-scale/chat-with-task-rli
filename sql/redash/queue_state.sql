@@ -1,7 +1,8 @@
 -- What is in flight right now, and how long it has been sitting.
 --
 -- One row per review level, over tasks whose newest pipeline node is still
--- pending. This is the "can we make the next delivery" query: `pending` is the
+-- live (pending or paused — filtering on 'pending' alone hid the 12 paused tasks at
+-- L-1/L11 on 0925). This is the "can we make the next delivery" query: `pending` is the
 -- pool available to draw the batch from, and the age columns say which part of
 -- that pool has stopped moving.
 --
@@ -37,7 +38,7 @@ pending AS (
         review_level,
         DATEDIFF(hour, CREATED_AT, CURRENT_TIMESTAMP()) AS age_hours
     FROM latest
-    WHERE STATUS = 'pending'
+    WHERE STATUS NOT IN ('canceled', 'completed')  -- live = pending OR paused
 )
 SELECT
     review_level,

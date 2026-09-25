@@ -15,7 +15,7 @@ WITH pending AS (
         DATEDIFF('hour', CREATED_AT, CURRENT_TIMESTAMP()) AS hours_in_lane
     FROM PUBLIC.PIPELINEV3HUMANNODES
     WHERE PROJECT = '{{project_id}}'
-      AND STATUS  = 'pending'
+      AND STATUS NOT IN ('canceled', 'completed')  -- live = pending OR paused
     QUALIFY ROW_NUMBER() OVER (PARTITION BY TASK ORDER BY CREATED_AT DESC) = 1
 ),
 bucketed AS (

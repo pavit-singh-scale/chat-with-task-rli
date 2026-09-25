@@ -25,7 +25,7 @@ WITH lane AS (
         DATEDIFF('hour', hn.CREATED_AT, CURRENT_TIMESTAMP()) AS hours_blocked
     FROM PUBLIC.PIPELINEV3HUMANNODES hn
     WHERE hn.PROJECT      = '{{project_id}}'
-      AND hn.STATUS       = 'pending'
+      AND hn.STATUS NOT IN ('canceled', 'completed')  -- live = pending OR paused
       AND hn.REVIEW_LEVEL::int = {{level}}
     QUALIFY ROW_NUMBER() OVER (PARTITION BY hn.TASK ORDER BY hn.CREATED_AT DESC) = 1
 ),

@@ -13,6 +13,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
+import { probeMedia, extractFrames, mediaFlags, mediaTools } from './rli_media.js';
 
 const BLENDER = ['/Applications/Blender.app/Contents/MacOS/Blender', 'blender'].find((b) => b.includes('/') ? fs.existsSync(b) : which(b));
 const DWG2SVG = which('dwg2SVG');
@@ -108,6 +109,38 @@ export function derivedFor(taskDir, rel) {
   return best;
 }
 
+// Video / audio: a probe JSON (+ stills for video) beside the other derivatives.
+const VIDEO_RE = /\.(mp4|m4v|mov|webm|mkv|avi|wmv)$/i;
+const AUDIO_RE = /\.(mp3|wav|ogg|aac|m4a|flac|aiff?)$/i;
+export const isMedia = (name) => VIDEO_RE.test(name) || AUDIO_RE.test(name);
+
+function deriveMedia(taskDir, abs, rel) {
+  const out = derivedPath(taskDir, rel, '.media.json');
+  const probe = probeMedia(abs);
+  if (!probe) return false;
+  if (VIDEO_RE.test(rel) && probe.video) {
+    const dir = derivedPath(taskDir, rel, '.frames');
+    fs.rmSync(dir, { recursive: true, force: true });
+    probe.frames = extractFrames(abs, dir, probe.duration_s);
+  }
+  fs.mkdirSync(path.dirname(out), { recursive: true });
+  fs.writeFileSync(out, JSON.stringify(probe, null, 1));
+  return true;
+}
+
+// Cached media probe for a file, with frame paths task-relative and flags.
+export function mediaFor(taskDir, rel) {
+  const p = derivedPath(taskDir, rel, '.media.json');
+  if (!fs.existsSync(p)) return null;
+  try {
+    const m = JSON.parse(fs.readFileSync(p, 'utf8'));
+    const frameDir = path.relative(taskDir, derivedPath(taskDir, rel, '.frames')).split(path.sep).join('/');
+    m.frames = (m.frames || []).map((f) => ({ ...f, path: `${frameDir}/${f.file}` }));
+    m.flags = mediaFlags(m);
+    return m;
+  } catch { return null; }
+}
+
 // Build every missing derivative for one task. Returns a per-file log.
 export function deriveTask(taskDir, { force = false, log = () => {} } = {}) {
   const results = [];
@@ -131,10 +164,22 @@ export function deriveTask(taskDir, { force = false, log = () => {} } = {}) {
           log(`✕ ${rel}: ${String(e.message || e).split('\n')[0]}`);
         }
         }
+        if (isMedia(name)) {
+          const out = derivedPath(taskDir, rel, '.media.json');
+          if (!force && fs.existsSync(out)) { results.push({ rel, status: 'cached' }); continue; }
+          try {
+            const ok = deriveMedia(taskDir, abs, rel);
+            results.push({ rel, status: ok ? 'ok' : 'none' });
+            log(`${ok ? '✓' : '·'} ${rel} → ${ok ? 'media probe' : 'no probe (ffmpeg missing)'}`);
+          } catch (e) {
+            results.push({ rel, status: 'error', error: String(e.message || e).slice(0, 200) });
+            log(`✕ ${rel}: ${String(e.message || e).split('\n')[0]}`);
+          }
+        }
       }
     })(root);
   }
   return results;
 }
 
-export const toolStatus = () => ({ blender: !!BLENDER, dwg2svg: !!DWG2SVG, aps: !!(process.env.APS_CLIENT_ID && process.env.APS_CLIENT_SECRET) });
+export const toolStatus = () => ({ blender: !!BLENDER, dwg2svg: !!DWG2SVG, ...mediaTools(), aps: !!(process.env.APS_CLIENT_ID && process.env.APS_CLIENT_SECRET) });

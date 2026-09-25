@@ -3850,3 +3850,7 @@ div.rli-hero__open { cursor: default; color: var(--text-3); }
 .acey__body .rli-cite { white-space: normal; overflow-wrap: anywhere; display: inline; padding: 0 4px; line-height: 1.9; }
 .acey__body .bubble pre { max-width: 100%; overflow-x: auto; }
 .acey__body .bubble table { display: block; max-width: 100%; overflow-x: auto; }
+
+/* Media measurements under a video/audio player (files/_derived/*.media.json). */
+.rli-mline { display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: center; font-size: 11px; font-family: var(--mono); color: var(--text-3); }
+.rli-mline__flag { color: var(--warn); background: var(--warn-bg); border-radius: 4px; padding: 0 5px; font-family: var(--sans, inherit); }

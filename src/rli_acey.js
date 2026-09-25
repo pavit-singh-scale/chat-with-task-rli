@@ -28,8 +28,10 @@ How to work:
   get_preference, the automated checks with get_checks.
 - Visual claims are only verifiable by looking. When a verdict or justification says something
   about how an artifact looks, open it with view_artifact (renders, drawings, PDF pages, UV
-  sheets) and compare RD/AD1/AD2 side by side. Say plainly when you could not see something
-  (3D-only geometry, video, audio) and what the auditor should check by hand.
+  sheets) and compare RD/AD1/AD2 side by side. For video, view_artifact shows stills; for any
+  claim about duration, resolution, format, loudness, clipping or silence, use probe_media and
+  quote the numbers. Say plainly what still can't be checked (3D-only geometry, motion, pacing,
+  voice quality) and what the auditor should check by hand.
 - Penalty criteria (negative weight): "passed: true" means the defect IS present and its weight
   is deducted. Never read a penalty verdict the other way round.
 - Scores: % = (positive weights passed − |negative weights| present) ÷ sum of positive weights.
@@ -115,8 +117,13 @@ export const RLI_TOOL_DEFS = [
   } },
   { type: 'function', function: {
     name: 'view_artifact',
-    description: 'LOOK at up to 4 artifacts at once (images, rendered drawings from DWG, SketchUp previews, the first page of a PDF). Use to verify visual verdicts and to compare RD/AD1/AD2. Paths come from list_artifacts.',
+    description: 'LOOK at up to 4 artifacts at once (images, rendered drawings from DWG, SketchUp previews, the first page of a PDF). A video path shows evenly spaced stills from it instead (all 6 when it is the only path, else 2). Use to verify visual verdicts and to compare RD/AD1/AD2. Paths come from list_artifacts.',
     parameters: { type: 'object', properties: { paths: { type: 'array', items: { type: 'string' }, maxItems: 4 } }, required: ['paths'] },
+  } },
+  { type: 'function', function: {
+    name: 'probe_media',
+    description: 'Measurements for video/audio artifacts you cannot watch or hear: duration, resolution, fps, orientation, sample rate, bit depth, channels, peak/RMS dB, silence spans, and flags (silent track, possible clipping, trailing/leading silence). Use to check any verdict about length, format, loudness, clipping or truncation. A flag is a lead, not a verdict — say what the numbers show.',
+    parameters: { type: 'object', properties: { paths: { type: 'array', items: { type: 'string' }, maxItems: 8 } }, required: ['paths'] },
   } },
   { type: 'function', function: {
     name: 'read_text_artifact',
@@ -190,7 +197,8 @@ export function makeRliExecutor(dirIn) {
       case 'list_artifacts': {
         const side = args.side && args.side !== 'all' ? SIDE_OF[args.side] || args.side : null;
         const files = side ? tt.files[side] || [] : all(tt);
-        return JSON.stringify(files.map((f) => ({ path: f.path, kind: f.kind, size: f.size, derived: f.derived?.kind || null })), null, 1);
+        return JSON.stringify(files.map((f) => ({ path: f.path, kind: f.kind, size: f.size, derived: f.derived?.kind || null,
+          ...(f.media ? { duration_s: f.media.duration_s, stills: f.media.frames.length || undefined, media_flags: f.media.flags.length ? f.media.flags : undefined } : {}) })), null, 1);
       }
       case 'view_artifact': {
         const paths = (args.paths || []).slice(0, 4);
@@ -200,6 +208,17 @@ export function makeRliExecutor(dirIn) {
         for (const p of paths) {
           const f = byPath.get(p);
           if (!f) { notes.push(`${p}: not an artifact of this task (use list_artifacts)`); continue; }
+          if (f.kind === 'video') {
+            const frames = f.media?.frames || [];
+            if (!frames.length) { notes.push(`${p}: video with no extracted stills (run tools/rli/derive.mjs) — ask the auditor to watch it`); continue; }
+            const pick = paths.length === 1 ? frames : [frames[Math.floor(frames.length / 3)], frames[Math.floor((2 * frames.length) / 3)]];
+            for (const fr of pick) {
+              const img = toModelImage(resolveSafe(dir, fr.path));
+              if (img) images.push({ ...img, label: `${p} — still at ${fr.t}s of ${f.media.duration_s}s` });
+            }
+            notes.push(`${p}: ${pick.length} still(s) shown (${pick.map((fr) => `${fr.t}s`).join(', ')}) — stills cannot show motion, pacing or audio`);
+            continue;
+          }
           let src = f.path, via = null;
           if (f.derived && ['image', 'drawing'].includes(f.derived.kind)) { src = f.derived.path; via = f.derived.label; }
           else if (f.derived?.thumb) { src = f.derived.thumb; via = 'sheet preview'; }
@@ -213,6 +232,17 @@ export function makeRliExecutor(dirIn) {
           notes.push(`${p}: shown${via ? ` via ${via}` : ''}`);
         }
         return { content: notes.join('\n') + (images.length ? `\n${images.length} image(s) attached below in order.` : ''), images };
+      }
+      case 'probe_media': {
+        const byPath = new Map(all(tt).map((f) => [f.path, f]));
+        return JSON.stringify((args.paths || []).slice(0, 8).map((p) => {
+          const f = byPath.get(p);
+          if (!f) return { path: p, error: 'not an artifact of this task' };
+          if (!['video', 'audio'].includes(f.kind)) return { path: p, error: `${f.kind} is not video/audio` };
+          if (!f.media) return { path: p, error: 'no probe cached — run tools/rli/derive.mjs' };
+          const { frames, ...m } = f.media;
+          return { path: p, ...m, stills: frames.map((fr) => fr.t) };
+        }), null, 1);
       }
       case 'read_text_artifact': {
         const abs = resolveSafe(dir, String(args.path || ''));

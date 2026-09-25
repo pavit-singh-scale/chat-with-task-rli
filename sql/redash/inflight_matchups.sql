@@ -49,7 +49,7 @@ WITH latest_node AS (
 inflight AS (
     SELECT TASK, review_level, CREATED_AT AS entered_at
     FROM latest_node
-    WHERE STATUS = 'pending'
+    WHERE STATUS NOT IN ('canceled', 'completed')  -- live = pending OR paused
 ),
 with_metadata AS (
     SELECT ta.TASK, ta.RESPONSE, ta.ATTEMPTED_AT

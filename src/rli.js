@@ -11,7 +11,7 @@
 // cannot prove from the record.
 import fs from 'node:fs';
 import path from 'node:path';
-import { derivedFor } from './rli_derive.js';
+import { derivedFor, mediaFor } from './rli_derive.js';
 
 export const SIDES = [
   { key: 'golden', label: 'RD', long: 'Reference deliverable (golden)' },
@@ -81,6 +81,7 @@ function listSide(dir, side) {
         const f = { name, rel: r, path: `files/${side}/${r}`, size: st.size, kind: kindOf(name) };
         const d = derivedFor(dir, f.path);
         if (d) f.derived = d;
+        if (f.kind === 'video' || f.kind === 'audio') { const m = mediaFor(dir, f.path); if (m) f.media = m; }
         out.push(f);
       }
     }
@@ -163,6 +164,19 @@ export function readRliIn(dir) {
       !rec.timeline && 'timeline',
     ].filter(Boolean),
   };
+  // The pristine record (snapshotted before the first studio fix) — lets the
+  // score check tell "the export's arithmetic is wrong" from "an auditor has
+  // since flipped verdicts here".
+  const srcPath = path.join(dir, 'task.source.json');
+  if (fs.existsSync(srcPath)) {
+    try {
+      const src = JSON.parse(fs.readFileSync(srcPath, 'utf8'));
+      out.sourceCriteria = (src.rubric_eval?.criteria || []).map((c) => ({
+        weight: Number(c.weight) || 0,
+        verdicts: Object.fromEntries(SIDES.map((s) => [s.key, { passed: typeof c[s.key]?.passed === 'boolean' ? c[s.key].passed : null }])),
+      }));
+    } catch { /* unreadable snapshot — score check falls back to the live record */ }
+  }
   out.checks = computeChecks(out);
   return out;
 }
@@ -294,6 +308,38 @@ export function computeChecks(t) {
     summary: g == null ? 'No RD score in the record.' : `RD scores ${g}% (${t.scores.golden.score}/${t.scores.golden.total}).`,
     detail: 'Per spec the printed RD score is the source of truth — never re-derive it to push it under the gate.' });
 
+  // Every gate trusts the printed scores, so first prove they follow from the
+  // verdicts: Σ weight where passed (penalties subtract) ÷ Σ positive weight.
+  const rescore = (crits, side) => {
+    const total = crits.reduce((s, c) => s + (c.weight > 0 ? c.weight : 0), 0);
+    const score = crits.reduce((s, c) => s + (c.verdicts[side].passed === true ? c.weight : 0), 0);
+    const blank = crits.filter((c) => c.verdicts[side].passed === null).length;
+    return { score, total, pct: total ? pct((score / total) * 100) : null, blank };
+  };
+  const scoreRows = SIDES.map((s) => {
+    const printed = t.scores?.[s.key];
+    const now = rescore(t.criteria, s.key);
+    const orig = t.sourceCriteria ? rescore(t.sourceCriteria, s.key) : now;
+    const matches = (r) => printed && r.score === printed.score && r.total === printed.total;
+    return { side: s.label, printed, now, orig, reproduces: matches(orig), edited: !!printed && matches(orig) && !matches(now) };
+  });
+  const broken = scoreRows.filter((r) => r.printed && !r.reproduces);
+  const blanks = scoreRows.filter((r) => r.now.blank);
+  const edited = scoreRows.filter((r) => r.edited);
+  add({ id: 'score', dim: null, label: 'Scores reproduce from the verdicts',
+    status: !scoreRows.some((r) => r.printed) ? 'na' : broken.length ? 'fail' : blanks.length || edited.length ? 'warn' : 'pass',
+    summary: broken.length
+      ? broken.map((r) => `${r.side} printed ${r.printed.score}/${r.printed.total}, verdicts give ${r.orig.score}/${r.orig.total}`).join(' · ')
+      : edited.length
+        ? `Verdicts edited in the studio — now ${edited.map((r) => `${r.side} ${r.now.pct}%`).join(' · ')} (printed ${edited.map((r) => `${r.printed.percentage}%`).join(' · ')})`
+        : 'Printed RD / AD1 / AD2 scores match the verdicts exactly.',
+    detail: [
+      broken.length && 'The printed score does not follow from the verdicts in the record, so every score gate on this task is unreliable. Usually a verdict was edited after scoring, or the export is stale — re-pull before auditing.',
+      blanks.length && `Criteria with no verdict: ${blanks.map((r) => `${r.side} ${r.now.blank}`).join(', ')}.`,
+      edited.length && 'The export reproduced exactly; the difference is fixes applied here. The printed score stays the source of truth for the RD gate, but check the stumping gates against the corrected AD scores.',
+    ].filter(Boolean).join(' ') || null,
+    rows: scoreRows.map(({ side, printed, now, orig }) => ({ side, printed, now, orig })) });
+
   // Stumping + the distance to each gate in verdict flips.
   const flips = (side, max) => {
     const s = t.scores?.[side];
@@ -397,26 +443,80 @@ export function computeChecks(t) {
       evidence: prov.candidates.map((c) => `crit://C${c.n}`) });
   }
 
+  // Justification integrity — exact-match tests, so no fuzzy false positives.
+  //   column swap: one side's text reused on another side of the SAME criterion
+  //                with the opposite verdict (text and verdict cannot both be right)
+  //   row swap:    the same text on a DIFFERENT criterion (pasted on the wrong row)
+  //   copies:      same text, same verdict across sides — legitimate for
+  //                objective checks ("exactly 60 fps"), a smell on subjective ones
+  const norm = (s) => s.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
+  const MIN_JUST = 40;
+  const columnSwaps = [], copies = [];
+  for (const c of t.criteria) {
+    for (let i = 0; i < SIDES.length; i++) for (let j = i + 1; j < SIDES.length; j++) {
+      const a = c.verdicts[SIDES[i].key], b = c.verdicts[SIDES[j].key];
+      const na = norm(a.justification);
+      if (na.length < MIN_JUST || na !== norm(b.justification)) continue;
+      const hit = { n: c.n, sides: [SIDES[i], SIDES[j]], weight: c.weight };
+      (a.passed !== null && b.passed !== null && a.passed !== b.passed ? columnSwaps : copies).push(hit);
+    }
+  }
+  // Same text on different criteria, grouped: either one generic line stamped
+  // across several atomic criteria, or a justification pasted on the wrong row.
+  const byText = new Map();
+  for (const c of t.criteria) {
+    for (const s of SIDES) {
+      const k = norm(c.verdicts[s.key].justification);
+      if (k.length < MIN_JUST) continue;
+      if (!byText.has(k)) byText.set(k, new Set());
+      byText.get(k).add(c.n);
+    }
+  }
+  const rowGroups = [...byText.values()].filter((g) => g.size > 1).map((g) => [...g].sort((a, b) => a - b));
+  const rowCrit = [...new Set(rowGroups.flat())];
+  const sideLink = (n, s) => `C${n}·${s.label}`;
+  const bucketByN = Object.fromEntries(t.criteria.map((c) => [c.n, c.bucket]));
+  const copiedCrit = [...new Set(copies.map((x) => x.n))];
+  // Only subjective (quality-bucket), heavy criteria make a copy suspicious —
+  // two files can both honestly be "a stereo WAV at 48 kHz".
+  const suspectCopies = [...new Set(copies.filter((x) => Math.abs(x.weight) >= 7 && bucketByN[x.n] === 'quality').map((x) => x.n))];
+  add({ id: 'integrity', dim: 'D12', label: 'Justification integrity',
+    status: columnSwaps.length ? 'fail' : rowGroups.length || suspectCopies.length ? 'warn' : 'pass',
+    summary: columnSwaps.length || rowGroups.length || copiedCrit.length
+      ? [
+        columnSwaps.length && `${columnSwaps.length} identical justification${columnSwaps.length > 1 ? 's' : ''} with opposite verdicts`,
+        rowGroups.length && `${rowCrit.length} criteria share one justification`,
+        suspectCopies.length && `${suspectCopies.length} subjective ${suspectCopies.length > 1 ? 'criteria' : 'criterion'} copied across responses`,
+        !suspectCopies.length && copiedCrit.length && `${copiedCrit.length} objective ${copiedCrit.length > 1 ? 'criteria' : 'criterion'} copied across responses`,
+      ].filter(Boolean).join(' · ')
+      : 'No justification is reused across responses or criteria.',
+    detail: [
+      columnSwaps.length && `Same text, opposite verdicts — one of each pair is wrong: ${columnSwaps.map((x) => `${sideLink(x.n, x.sides[0])} = ${sideLink(x.n, x.sides[1])}`).join(', ')}.`,
+      rowGroups.length && `One justification on several criteria — generic, or pasted on the wrong row: ${rowGroups.slice(0, 8).map((g) => `C${g.join('/C')}`).join('; ')}${rowGroups.length > 8 ? '…' : ''}.`,
+      suspectCopies.length && `Heavy aesthetic/functional criteria with the same text on two responses: C${suspectCopies.join(', C')} — the customer flagged copy-pasted justifications.`,
+      copiedCrit.length && `${copiedCrit.length} criteria in all carry identical text across responses with the same verdict; fine for objective checks.`,
+    ].filter(Boolean).join(' ') || null,
+    note: 'Exact matches only (case and punctuation ignored), so every hit is real reuse. Paraphrased or inverted text is left to the eval, which reads each justification against the artifact.',
+    evidence: [...new Set([...columnSwaps.map((x) => x.n), ...rowCrit, ...suspectCopies])].map((n) => `crit://C${n}`) });
+
   // Heuristic signals for the auditor — never a verdict.
   const ad1Only = t.criteria.filter((c) => c.verdicts.golden.good === true && c.verdicts.ad1.good === false && c.verdicts.ad2.good === true);
   const goldenMisses = t.criteria.filter((c) => c.verdicts.golden.good === false);
-  const sameJust = t.criteria.filter((c) => {
-    const j = SIDES.map((s) => c.verdicts[s.key].justification.trim()).filter((x) => x.length > 25);
-    return new Set(j).size < j.length;
-  });
-  if (ad1Only.length || goldenMisses.length || sameJust.length) {
+  const expectAd1 = process.env.RLI_EXPECTED_AD1_MODEL;
+  const wrongModel = expectAd1 && t.models.ad1 && !t.models.ad1.toLowerCase().includes(expectAd1.toLowerCase());
+  if (ad1Only.length || goldenMisses.length || wrongModel) {
     add({ id: 'signals', dim: null, label: 'Signals worth a look', status: 'info',
       summary: [
         ad1Only.length && `${ad1Only.length} criteria only AD1 fails`,
         goldenMisses.length && `${goldenMisses.length} the golden fails`,
-        sameJust.length && `${sameJust.length} with a justification copied across responses`,
+        wrongModel && `AD1 is ${t.models.ad1}, expected ${expectAd1}`,
       ].filter(Boolean).join(' · '),
       detail: [
         ad1Only.length && `Only-AD1 fails can be legitimate — or post-hoc criteria written around one model's flaw (the customer's "Ugh" example). Check: C${ad1Only.map((c) => c.n).join(', C')}.`,
         goldenMisses.length && `Golden misses: C${goldenMisses.map((c) => c.n).join(', C')} — confirm the golden really fails them rather than the criterion being mis-scoped.`,
-        sameJust.length && `Identical justifications on different responses: C${sameJust.map((c) => c.n).join(', C')} — the customer flagged copy-pasted justifications.`,
+        wrongModel && `RLI_EXPECTED_AD1_MODEL is "${expectAd1}" but this task's AD1 was produced by ${t.models.ad1}.`,
       ].filter(Boolean).join(' '),
-      evidence: [...ad1Only, ...goldenMisses, ...sameJust].map((c) => `crit://C${c.n}`) });
+      evidence: [...ad1Only, ...goldenMisses].map((c) => `crit://C${c.n}`) });
   }
 
   return checks;
