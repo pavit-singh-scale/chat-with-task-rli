@@ -105,6 +105,11 @@ export function createRliEval({ bucket, taskId, rli, onCrit, onSpec, onOpenTab, 
   }
 
   function verdictStrip(ev) {
+    if (ev.partial) {
+      return el('div', { class: 'rev-verdict' },
+        el('span', { class: 'rev-pill' }, 'No full eval'),
+        el('span', { class: 'rev-verdict__text' }, `${Object.keys(ev.criteria || {}).length} criteria checked individually on the Rubric tab — press Run eval for a verdict.`));
+    }
     const [label, cls] = BUCKET[ev.bucket] || [ev.bucket, ''];
     return el('div', { class: `rev-verdict is-${cls}` },
       el('span', { class: `rev-pill is-${cls}` }, label),

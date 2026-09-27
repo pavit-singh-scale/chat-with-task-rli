@@ -307,7 +307,9 @@ export async function checkCriterion(dir, n, { onEvent, onUsage } = {}) {
   const messages = [{ role: 'system', content: system }, { role: 'user', content: `Check criterion C${n}. Reply with the JSON object only.` }];
   const { final } = await runAgentLoop({ messages, tools: RLI_TOOL_DEFS, executor: makeRliExecutor(dir), onEvent, maxSteps: 14, onUsage });
   const raw = extractJson(final);
-  const ev = readEval(dir) || { version: 1, task_id: rec.task_id, generated_at: new Date().toISOString(), bucket: 'PASS', verdict: '', findings: [], manual_checks: [], escalate: null, verified: { criteria: 0, artifacts: 0 }, criteria: {} };
+  // No full eval yet: record the check, but mark the eval partial so nothing
+  // downstream reads "0 findings" as a clean PASS.
+  const ev = readEval(dir) || { version: 1, partial: true, task_id: rec.task_id, generated_at: new Date().toISOString(), bucket: null, verdict: '', findings: [], manual_checks: [], escalate: null, verified: { criteria: 0, artifacts: 0 }, criteria: {} };
   ev.criteria ||= {};
   // Re-checking replaces this criterion's previous on-demand finding.
   const prev = ev.criteria[n]?.finding && ev.criteria[n]?.source === 'check' ? ev.criteria[n].finding : null;
@@ -324,7 +326,7 @@ export async function checkCriterion(dir, n, { onEvent, onUsage } = {}) {
     ev.findings.push(f);
     ev.criteria[n] = { ok: false, note: f.headline, explanation: f.evidence, finding: f.id, source: 'check', at: new Date().toISOString() };
   }
-  ev.bucket = ev.findings.some((f) => f.sev === 'HARD') ? 'HARD_FAIL' : ev.findings.some((f) => f.sev === 'SOFT') ? 'SOFT_FAIL' : 'PASS';
+  ev.bucket = ev.findings.some((f) => f.sev === 'HARD') ? 'HARD_FAIL' : ev.findings.some((f) => f.sev === 'SOFT') ? 'SOFT_FAIL' : ev.partial ? null : 'PASS';
   fs.writeFileSync(path.join(dir, 'eval.json'), JSON.stringify(ev, null, 1));
   fs.writeFileSync(path.join(dir, 'review.md'), renderReviewMd(ev));
   fs.writeFileSync(path.join(dir, 'remediation.md'), renderRemediationMd(ev));
@@ -350,16 +352,20 @@ export function renderReviewMd(ev) {
   const tagged = ev.findings.filter((f) => f.dim && f.sev !== 'INFO');
   return [
     `# Review — ${ev.task_id}`, '',
-    '```autoqc',
-    ...(tagged.length ? tagged.map((f) => `${f.dim} — ${dimName(f.dim)}: ${f.headline}`) : ['NONE']),
-    '```', '',
+    // A check-only (partial) eval has no autoqc fence: the board reads
+    // "NONE" as audited-clean, and nothing has been audited yet.
+    ...(ev.partial && !tagged.length ? [] : ['```autoqc',
+      ...(tagged.length ? tagged.map((f) => `${f.dim} — ${dimName(f.dim)}: ${f.headline}`) : ['NONE']),
+      '```', '']),
     '```alerts',
     ...(hard.length ? hard.map((f) => `${f.headline} — ${whereOf(f)}`) : ['NONE']),
     '```', '',
     '## Verdict',
-    `**Proposed bucket: ${ev.bucket}** — ${ev.verdict}`, '',
+    ev.partial
+      ? `**No full eval yet** — ${Object.keys(ev.criteria || {}).length} criteria checked individually. Run the eval for a verdict.`
+      : `**Proposed bucket: ${ev.bucket}** — ${ev.verdict}`, '',
     '## Findings',
-    ...(ev.findings.length ? ev.findings.flatMap((f) => [
+    ...(ev.findings.length || ev.partial ? ev.findings.flatMap((f) => [
       `### [${f.sev}] ${f.id} — ${f.headline}`,
       `- **Where:** ${whereLink(f)}`,
       `- **Evidence:** ${f.evidence}`,
