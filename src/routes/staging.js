@@ -148,7 +148,7 @@ stagingApi.post('/resolve', wrap(async (req, res) => {
     const m = inStaging.get(id);
     if (!m) { skipped.push({ id, reason: 'not in Staging' }); continue; }
     if (m.pendingFixes > 0) { skipped.push({ id, reason: 'pending fixes' }); continue; }
-    const verdict = (m.audit?.grammar_only_fail || m.grammarOnly) ? 'GRAMMAR_ONLY' : 'FIXES_MADE';
+    const verdict = 'FIXES_MADE'; // RLI has no grammar-only resolution
     const item = moveTaskToLane(m.bucket, id, 'RESOLVED', { verdict, username: req.user.username });
     if (item) {
       // The backfill stamp lives beside the verdict so the export manifest and

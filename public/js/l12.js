@@ -3,21 +3,15 @@ import { initPipelinePanels } from './redash_panels.js';
 import { initQualityPanels } from './quality_panels.js';
 import { mountAcey } from './acey.js';
 
-const DIM_LABEL = {
-  correctness: 'Correctness',
-  agent_behaviour: 'Agent',
-  communications: 'Comms',
-  code_style: 'Code style',
-};
 const VERDICT_LABEL = {
-  NO_ISSUES: 'No fixes', FIXES_MADE: 'Fixes made', GRAMMAR_ONLY: 'Grammar-only', SBQ: 'SBQ',
+  NO_ISSUES: 'No fixes', FIXES_MADE: 'Fixes made', SBQ: 'SBQ',
   SECOND_OPINION: '2nd opinion', none: 'Undecided',
 };
-const SEV_LABEL = { PASS: 'Pass', SOFT_FAIL: 'Soft fail', HARD_FAIL: 'Hard fail', UNSORTED: 'Unsorted' };
-const STRENGTHS = ['strong', 'moderate', 'slight', 'unrated'];
+const SEV_LABEL = { PASS: 'No issues', SOFT_FAIL: 'Non-fail', HARD_FAIL: 'Fail', UNSORTED: 'Unsorted' };
+const GATE = { golden: 97, ad1: 70, ad2: 50 };
 
 let data = null;
-let lbSort = { key: 'overall', dir: -1 };
+let lbSort = { key: 'avgScore', dir: 1 };
 
 // Display name: drop the vendor path ("anthropic/…", "xai/…") and the "claude-" family
 // prefix so the distinguishing part (opus-4-6, sonnet-4-6, grok-4.5) is what shows.
@@ -28,8 +22,7 @@ function displayModel(name) {
   return s.replace(/^claude-/, '');
 }
 const pct = (x) => (x == null ? '—' : `${Math.round(x * 100)}%`);
-const sc = (x) => (x == null ? '—' : x.toFixed(2));
-const scoreClass = (x) => (x == null ? '' : x >= 2.5 ? 'good' : x >= 1.8 ? 'mid' : 'bad');
+const num1 = (x) => (x == null ? '—' : `${Math.round(x * 10) / 10}`);
 
 function statCard(value, label) {
   return el('div', { class: 'stat-card glass' },
@@ -38,13 +31,14 @@ function statCard(value, label) {
 }
 
 function renderCards() {
-  const decidedModels = data.leaderboard.length;
+  const g = data.gates;
+  const rate = (n) => (g.scored ? `${n}/${g.scored}` : '—');
   document.getElementById('l12-cards').replaceChildren(
-    statCard(data.total, 'Total tasks'),
-    statCard(decidedModels, 'Models'),
-    statCard(data.matchups.length, 'Matchups'),
-    statCard(data.annotators.length, 'Annotators'),
-    statCard(data.taskNames.length, 'Distinct task names'),
+    statCard(data.total, 'Tasks'),
+    statCard(`${num1(data.avg.golden)}%`, `Avg RD · ${rate(g.golden)} ≥ ${GATE.golden}`),
+    statCard(`${num1(data.avg.ad1)}%`, `Avg AD1 · ${rate(g.ad1)} ≤ ${GATE.ad1}`),
+    statCard(`${num1(data.avg.ad2)}%`, `Avg AD2 · ${rate(g.ad2)} ≤ ${GATE.ad2}`),
+    statCard(rate(g.all), 'Clear every score gate'),
   );
 }
 
@@ -65,124 +59,94 @@ function breakdownCard(title, counts, order, labels, cls) {
 function renderMovement() {
   document.getElementById('l12-movement').replaceChildren(
     breakdownCard('Reviewer decisions', data.verdicts,
-      ['NO_ISSUES', 'FIXES_MADE', 'GRAMMAR_ONLY', 'SBQ', 'SECOND_OPINION', 'none'], VERDICT_LABEL, 'v'),
+      ['NO_ISSUES', 'FIXES_MADE', 'SBQ', 'SECOND_OPINION', 'none'], VERDICT_LABEL, 'v'),
     breakdownCard('Severity (eval buckets)', data.severity,
       ['PASS', 'SOFT_FAIL', 'HARD_FAIL', 'UNSORTED'], SEV_LABEL, 's'),
   );
 }
 
-// ---- leaderboard (sortable) ----
+// ---- models (sortable) ----
 function sortVal(m, key) {
   if (key === 'name') return m.name;
-  if (key === 'appearances') return m.appearances;
-  if (key === 'winRate') return m.winRate ?? -1;
-  if (key === 'overall') return m.overall ?? -1;
-  return m.dims[key]?.avg ?? -1; // a dimension
+  if (key === 'h2h') { const d = m.h2h.wins + m.h2h.losses; return d ? m.h2h.wins / d : -1; }
+  return m[key] ?? (lbSort.dir > 0 ? 999 : -1);
 }
 function setSort(key) {
   if (lbSort.key === key) lbSort.dir *= -1;
-  else lbSort = { key, dir: key === 'name' ? 1 : -1 };
+  else lbSort = { key, dir: key === 'name' || key === 'avgScore' || key === 'vsRd' ? 1 : -1 };
   renderLeaderboard();
 }
-function th(label, key, extra) {
+function th(label, key, extra, title) {
   const active = lbSort.key === key;
-  return el('th', { class: `sortable${active ? ' sorted' : ''}${extra ? ' ' + extra : ''}`, onclick: () => setSort(key) },
+  return el('th', { class: `sortable${active ? ' sorted' : ''}${extra ? ' ' + extra : ''}`, title: title || '', onclick: () => setSort(key) },
     label, active ? el('span', { class: 'sort-caret' }, lbSort.dir < 0 ? ' ▾' : ' ▴') : '');
 }
-function scoreCell(cell) {
-  const { avg, n } = cell;
-  return el('td', { class: 'l12-score-cell' },
-    el('span', { class: `l12-score ${scoreClass(avg)}` }, sc(avg)),
-    avg == null ? '' : el('span', { class: 'l12-score-bar' }, el('span', { class: `fill ${scoreClass(avg)}`, style: `width:${(avg / 3) * 100}%` })),
-    el('span', { class: 'l12-n' }, `n${n}`));
-}
+// 1–7 preference mean → words, from the right-hand side's point of view.
+const vsRdWord = (x) => (x == null ? '' : x < 2 ? 'RD far better' : x < 3.5 ? 'RD better' : x <= 4.5 ? 'comparable' : 'beats RD');
 function renderLeaderboard() {
   const rows = [...data.leaderboard].sort((a, b) => {
     const va = sortVal(a, lbSort.key), vb = sortVal(b, lbSort.key);
-    if (va < vb) return -1 * lbSort.dir;
-    if (va > vb) return 1 * lbSort.dir;
-    return 0;
+    return va < vb ? -lbSort.dir : va > vb ? lbSort.dir : 0;
   });
   const head = el('tr', {},
-    el('th', { class: 'l12-rank-h' }, '#'),
     th('Model', 'name', 'l12-model-h'),
-    th('Tasks', 'appearances'),
-    th('Win rate', 'winRate'),
-    ...data.dims.map((d) => th(DIM_LABEL[d] || d, d)),
-    th('Overall', 'overall', 'l12-overall-h'),
-  );
-  const body = rows.map((m, i) =>
-    el('tr', {},
-      el('td', { class: 'l12-rank' }, String(i + 1)),
-      el('td', { class: 'l12-model' },
-        el('span', { class: 'mono', title: m.name }, displayModel(m.name))),
-      el('td', {}, String(m.appearances)),
-      el('td', {}, el('span', { class: `l12-win ${m.winRate >= 0.5 ? 'good' : m.winRate == null ? '' : 'bad'}` }, pct(m.winRate)),
-        el('span', { class: 'l12-n' }, ` ${m.wins}-${m.losses}`)),
-      ...data.dims.map((d) => scoreCell(m.dims[d])),
-      el('td', { class: 'l12-overall' }, el('span', { class: `l12-score ${scoreClass(m.overall)}` }, sc(m.overall))),
-    ));
-  document.getElementById('l12-leaderboard').replaceChildren(head, ...body);
-}
-
-// ---- matchups ----
-function strengthPills(p, align) {
-  const items = STRENGTHS.filter((s) => p[s]);
-  if (!items.length) return el('div', { class: `l12-spills ${align}` }, el('span', { class: 'l12-spill none' }, '—'));
-  return el('div', { class: `l12-spills ${align}` },
-    ...items.map((s) => el('span', { class: `l12-spill s-${s}`, title: `${p[s]} ${s} win${p[s] === 1 ? '' : 's'}` }, `${p[s]} ${s}`)));
-}
-function muChip(name, side) {
-  return el('span', { class: `l12-mu-chip ${side}` },
-    el('span', { class: 'mono l12-mu-name', title: name }, displayModel(name)));
-}
-function renderMatchups() {
-  const wrap = document.getElementById('l12-matchups');
-  if (!data.matchups.length) { wrap.replaceChildren(el('div', { class: 'l12-empty' }, 'No matchups in this scope.')); return; }
-  wrap.replaceChildren(...data.matchups.map((mu) => {
-    const x = mu.a, y = mu.b;
-    const px = mu.perModel[x] || { wins: 0 }, py = mu.perModel[y] || { wins: 0 };
-    const wx = px.wins || 0, wy = py.wins || 0;
-    return el('div', { class: 'l12-matchup glass' },
-      el('div', { class: 'l12-mu-head' }, muChip(x, 'left'),
-        el('span', { class: 'l12-mu-total' }, `${mu.total} task${mu.total === 1 ? '' : 's'}`), muChip(y, 'right')),
-      el('div', { class: 'l12-winbar' },
-        el('div', { class: 'l12-winfill left', style: `flex:${wx || 0.001}`, title: `${x}: ${wx}` }, wx ? String(wx) : ''),
-        el('div', { class: 'l12-winfill right', style: `flex:${wy || 0.001}`, title: `${y}: ${wy}` }, wy ? String(wy) : '')),
-      el('div', { class: 'l12-mu-foot' },
-        el('div', { class: 'l12-mu-col left' },
-          el('span', { class: `l12-mu-pct ${wx >= wy ? 'lead' : ''}` }, pct(mu.total ? wx / mu.total : null)),
-          strengthPills(px, 'left')),
-        el('div', { class: 'l12-mu-col right' },
-          el('span', { class: `l12-mu-pct ${wy > wx ? 'lead' : ''}` }, pct(mu.total ? wy / mu.total : null)),
-          strengthPills(py, 'right'))),
-    );
-  }));
-}
-
-// ---- annotators + task names ----
-function renderAnnotators() {
-  const head = el('tr', {}, ...['Annotator ID', 'Tasks', 'No fixes', 'Fixes made', 'Grammar-only', 'SBQ', '2nd opinion'].map((h) => el('th', {}, h)));
-  const body = data.annotators.map((a) =>
-    el('tr', {},
-      el('td', {}, el('span', { class: 'mono', title: a.id }, a.id)),
-      el('td', {}, String(a.tasks)),
-      el('td', {}, String(a.NO_ISSUES)),
-      el('td', {}, String(a.FIXES_MADE)),
-      el('td', {}, String(a.GRAMMAR_ONLY || 0)),
-      el('td', {}, String(a.SBQ)),
-      el('td', {}, String(a.SECOND_OPINION))));
-  const t = document.getElementById('l12-annotators');
+    th('Tasks', 'tasks', '', 'Tasks where this model produced AD1 or AD2'),
+    el('th', {}, 'Slot'),
+    th('Avg score', 'avgScore', '', 'Mean rubric score in its slot — lower = the task stumps it more'),
+    th('Gate pass', 'gatePassRate', '', 'Share of its tasks under the stumping gate for its slot (AD1 ≤ 70, AD2 ≤ 50)'),
+    th('vs RD', 'vsRd', '', 'Mean RD-vs-model preference, 1 = RD much better … 4 = comparable … 7 = model better'),
+    th('Head to head', 'h2h', '', 'AD1 vs AD2 preference: wins–losses–ties against the other model'));
+  const body = rows.map((m) => {
+    const slot = [m.slots.ad1 && `AD1 ×${m.slots.ad1}`, m.slots.ad2 && `AD2 ×${m.slots.ad2}`].filter(Boolean).join(' · ');
+    const h = m.h2h;
+    return el('tr', {},
+      el('td', { class: 'l12-model' }, el('span', { class: 'mono', title: m.name }, displayModel(m.name))),
+      el('td', {}, String(m.tasks)),
+      el('td', { class: 'l12-n' }, slot),
+      el('td', {}, el('b', {}, m.avgScore == null ? '—' : `${num1(m.avgScore)}%`)),
+      el('td', {}, el('span', { class: `l12-win ${m.gatePassRate == null ? '' : m.gatePassRate >= 0.9 ? 'good' : 'bad'}` }, pct(m.gatePassRate))),
+      el('td', {}, el('b', {}, num1(m.vsRd)), el('span', { class: 'l12-n' }, ` ${vsRdWord(m.vsRd)}`)),
+      el('td', {}, `${h.wins}–${h.losses}–${h.ties}`));
+  });
+  const t = document.getElementById('l12-leaderboard');
   t.replaceChildren(head, ...body);
-  if (!body.length) t.append(el('tr', {}, el('td', { class: 'empty', colspan: '6' }, 'No annotator data in this scope.')));
+  if (!body.length) t.append(el('tr', {}, el('td', { class: 'empty', colspan: '7' }, 'No model data in this scope.')));
 }
-function renderTaskNames() {
-  const head = el('tr', {}, el('th', {}, 'Task name'), el('th', {}, 'Instances'));
-  const body = data.taskNames.map((t) =>
-    el('tr', {}, el('td', { class: 'l12-taskname' }, t.name), el('td', {}, String(t.count))));
-  const el2 = document.getElementById('l12-tasknames');
-  el2.replaceChildren(head, ...body);
-  if (!body.length) el2.append(el('tr', {}, el('td', { class: 'empty', colspan: '2' }, 'No tasks in this scope.')));
+
+// ---- pairwise preferences ----
+function renderPrefs() {
+  const wrap = document.getElementById('l12-prefs');
+  const cards = data.prefs.filter((p) => p.n).map((p) => {
+    const lean = (x) => (x == null ? '' : x < 3.5 ? p.left : x > 4.5 ? p.right : 'even');
+    return el('div', { class: 'l12-pref glass' },
+      el('div', { class: 'l12-pref__head' },
+        el('b', {}, `${p.left} vs ${p.right}`),
+        el('span', { class: 'l12-n' }, `${p.n} task${p.n === 1 ? '' : 's'}`),
+        el('span', { class: 'spacer' }),
+        el('span', { class: `l12-pref__agree ${p.decided && p.agree / p.decided < 0.8 ? 'bad' : ''}`, title: 'Of the tasks where the preference leans one way and the rubric scores differ by more than 2 points, how many point the same way' },
+          p.decided ? `agrees with rubric ${p.agree}/${p.decided}` : 'no decided pairs')),
+      el('table', { class: 'l12-pref__t' },
+        el('tr', {}, el('th', {}, 'Dimension'), el('th', {}, 'Mean'), el('th', {}, 'Leans'), el('th', { title: `ratings favouring ${p.left} / comparable / favouring ${p.right}` }, `${p.left} · = · ${p.right}`)),
+        ...p.dims.map((d) => el('tr', {},
+          el('td', {}, d.title),
+          el('td', {}, el('b', {}, num1(d.mean))),
+          el('td', { class: 'l12-n' }, lean(d.mean)),
+          el('td', { class: 'mono l12-n' }, `${d.left} · ${d.tie} · ${d.right}`)))));
+  });
+  wrap.replaceChildren(...(cards.length ? cards : [el('div', { class: 'l12-empty' }, 'No preference data in this scope.')]));
+}
+
+// ---- domains ----
+function renderDomains() {
+  const head = el('tr', {}, ...['Domain', 'Tasks', 'Avg RD', 'Avg AD1', 'Avg AD2', 'Fail', 'Non-fail'].map((h) => el('th', {}, h)));
+  const cell = (side, v) => el('td', { class: v == null ? '' : (side === 'golden' ? v >= GATE.golden : v <= GATE[side]) ? '' : 'l12-gatebad' }, v == null ? '—' : `${num1(v)}%`);
+  const body = data.domains.map((d) => el('tr', {},
+    el('td', {}, d.domain), el('td', {}, String(d.tasks)),
+    cell('golden', d.avg.golden), cell('ad1', d.avg.ad1), cell('ad2', d.avg.ad2),
+    el('td', {}, String(d.hard)), el('td', {}, String(d.soft))));
+  const t = document.getElementById('l12-domains');
+  t.replaceChildren(head, ...body);
+  if (!body.length) t.append(el('tr', {}, el('td', { class: 'empty', colspan: '7' }, 'No tasks in this scope.')));
 }
 
 async function loadScope(scope) {
@@ -190,16 +154,15 @@ async function loadScope(scope) {
   renderCards();
   renderMovement();
   renderLeaderboard();
-  renderMatchups();
-  renderAnnotators();
-  renderTaskNames();
+  renderPrefs();
+  renderDomains();
 }
 
 // ---------- boot ----------
 const me = await api('/me');
 const scopeSel = el('select', { class: 'select', id: 'l12-scope-sel' },
-  el('option', { value: 'completed' }, 'Completed (resolved, non-archived)'),
   el('option', { value: 'active' }, 'Active board (non-archived)'),
+  el('option', { value: 'completed' }, 'Completed (resolved, non-archived)'),
   el('option', { value: 'all' }, 'All tasks on disk'));
 renderAppHeader({ active: 'l12', user: me, extras: [scopeSel] });
 

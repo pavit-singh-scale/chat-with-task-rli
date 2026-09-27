@@ -3967,3 +3967,16 @@ button.rev-where:hover { color: var(--accent); background: var(--accent-bg); }
 .rd-lvl-head.rd-ladder, .rd-lvl.rd-ladder { grid-template-columns: minmax(140px, 1fr) repeat(4, 110px); }
 .rd-ladder .rd-num { text-align: right; font-variant-numeric: tabular-nums; }
 .rd-lvl.rd-ladder .rd-num b { font-size: 14px; color: var(--text); }
+
+/* L12 Stats — RLI pairwise preferences + domains */
+.l12-prefs { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 12px; margin-bottom: 26px; }
+.l12-pref { padding: 12px 14px; border-radius: var(--r-card); border: 1px solid var(--border); }
+.l12-pref__head { display: flex; align-items: baseline; gap: 8px; margin-bottom: 8px; }
+.l12-pref__head .spacer { flex: 1; }
+.l12-pref__agree { font-size: 11.5px; color: var(--ok); }
+.l12-pref__agree.bad { color: var(--warn); }
+.l12-pref__t { width: 100%; border-collapse: collapse; font-size: 12.5px; font-variant-numeric: tabular-nums; }
+.l12-pref__t th { text-align: left; font-size: 10.5px; font-weight: 600; text-transform: uppercase; letter-spacing: .05em; color: var(--text-3); padding: 4px 0; }
+.l12-pref__t td { padding: 4px 0; border-top: 1px solid var(--border); }
+.l12-pref__t th:not(:first-child), .l12-pref__t td:not(:first-child) { text-align: right; }
+.l12-gatebad { color: var(--fail); font-weight: 600; }

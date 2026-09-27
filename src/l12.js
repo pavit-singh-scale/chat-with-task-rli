@@ -2,51 +2,28 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { config, BUCKETS } from './config.js';
 
-// L12 analytics: aggregate every task's rank.json (eval result) + _studio.json
-// (reviewer decision) into one computed payload for the dashboard. Cheap enough
-// (a few hundred small JSON files) to compute per request — no caching needed.
+// L12 analytics for RLI: aggregate every task's record (task.json — rubric
+// scores, models, three-way preference) + _studio.json (reviewer decision) into
+// one payload for the dashboard. Cheap enough (a few hundred JSON files) to
+// compute per request — no caching needed.
 
 const TASK_ID_RE = /^[0-9a-f]{24}$/;
-const DIMS = ['correctness', 'agent_behaviour', 'communications', 'code_style'];
-const RESOLVED_VERDICTS = new Set(['NO_ISSUES', 'FIXES_MADE', 'GRAMMAR_ONLY', 'SBQ']);
-const STRENGTH = { 1: 'slight', 2: 'moderate', 3: 'strong' };
+const RESOLVED_VERDICTS = new Set(['NO_ISSUES', 'FIXES_MADE', 'SBQ']);
+const SIDES = ['golden', 'ad1', 'ad2'];
+const GATE = { golden: 97, ad1: 70, ad2: 50 };
+const passesGate = (side, v) => (side === 'golden' ? v >= GATE.golden : v <= GATE[side]);
+const PAIRS = [
+  { pair: 'rd_vs_ad1', left: 'RD', right: 'AD1', l: 'golden', r: 'ad1' },
+  { pair: 'rd_vs_ad2', left: 'RD', right: 'AD2', l: 'golden', r: 'ad2' },
+  { pair: 'ad1_vs_ad2', left: 'AD1', right: 'AD2', l: 'ad1', r: 'ad2' },
+];
 
 function readJson(p) {
   try { return JSON.parse(fs.readFileSync(p, 'utf8')); } catch { return null; }
 }
+const mean = (xs) => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : null);
+const r2 = (x) => (x == null ? null : Math.round(x * 100) / 100);
 
-// Resolve each result entry to its real model name. Legacy tasks key results as
-// model_1/model_2 and carry a model_assignments map; newer tasks key results by
-// the codename directly. Either way, model_assignment tells us the a/b slot.
-function resolveNames(rank) {
-  const results = rank.results || {};
-  const keys = Object.keys(results);
-  const legacy = keys.length === 2 && keys.includes('model_1') && keys.includes('model_2');
-  const mas = rank.model_assignments || {};
-  const out = {};
-  for (const [k, v] of Object.entries(results)) {
-    out[k] = legacy ? (mas[v.model_assignment] || v.model_assignment || k) : k;
-  }
-  return out;
-}
-
-// Task "name" = the base instance slug (e.g. interactive-hack-…-networkx-perf-optimization),
-// with the trailing version/variant tag stripped (…-V47-A, …-v2, …-V3) so re-cuts of the
-// same underlying task group together as instances. Falls back to the human title / problem
-// statement only when there's no slug.
-function baseTaskName(rank) {
-  const slug = rank.source_instance_id || rank.instance_id;
-  if (slug) {
-    return String(slug).trim().replace(/-[Vv]\d+(?:-[A-Za-z0-9]+)?$/, '');
-  }
-  const t = rank.task && typeof rank.task === 'object' ? rank.task : {};
-  const title = t.task_title || t.title;
-  if (title) return String(title).trim();
-  const ps = String(rank.problem_statement || '').trim();
-  return ps ? ps.slice(0, 70) + (ps.length > 70 ? '…' : '') : '(untitled)';
-}
-
-// One flat record per task we care about.
 function collect(scope) {
   const rows = [];
   for (const bucket of BUCKETS) {
@@ -56,117 +33,127 @@ function collect(scope) {
     for (const id of names) {
       if (!TASK_ID_RE.test(id)) continue;
       const dir = path.join(bdir, id);
-      const rank = readJson(path.join(dir, 'rank.json'));
-      if (!rank || !rank.results) continue;
+      const rec = readJson(path.join(dir, 'task.json'));
+      if (!rec) continue;
       const studio = readJson(path.join(dir, '_studio.json')) || {};
       if (studio.tour) continue;
       const delivered = !!studio.delivered;
       const verdict = studio.verdict || null;
-
-      // scope filter
       if (scope === 'active' && delivered) continue;
       if (scope === 'completed' && (delivered || !(verdict && RESOLVED_VERDICTS.has(verdict)))) continue;
-      // scope === 'all' → everything on disk
-
-      rows.push({ id, bucket, delivered, verdict, rank, annotator: rank.annotator_id || 'unknown' });
+      rows.push({ id, bucket, delivered, verdict, rec });
     }
   }
   return rows;
 }
 
-export function computeL12(scope = 'completed') {
+export function computeL12(scope = 'active') {
   const rows = collect(scope);
-
   const severity = { PASS: 0, SOFT_FAIL: 0, HARD_FAIL: 0, UNSORTED: 0 };
-  const verdicts = { NO_ISSUES: 0, FIXES_MADE: 0, GRAMMAR_ONLY: 0, SBQ: 0, SECOND_OPINION: 0, none: 0 };
-  const matchups = new Map();   // "A vs B" -> {a,b,total, perModel:{name:{wins,slight,moderate,strong,unrated}}}
-  const models = new Map();     // name -> {appearances,wins,losses, dims:{dim:{sum,n}}}
-  const annotators = new Map(); // id -> {tasks,NO_ISSUES,FIXES_MADE,GRAMMAR_ONLY,SBQ,SECOND_OPINION}
-  const taskNames = new Map();  // title -> count
+  const verdicts = { NO_ISSUES: 0, FIXES_MADE: 0, SBQ: 0, SECOND_OPINION: 0, none: 0 };
+  const scores = { golden: [], ad1: [], ad2: [] };
+  const gates = { golden: 0, ad1: 0, ad2: 0, all: 0, scored: 0 };
+  const models = new Map();   // name -> { tasks, slots, scores, gatePass, vsRd: [], h2h }
+  const pairAgg = new Map(PAIRS.map((p) => [p.pair, { ...p, n: 0, dims: new Map(), agree: 0, decided: 0 }]));
+  const domains = new Map();  // domain -> { tasks, scores{}, hard, soft }
 
   const modelRec = (name) => {
-    if (!models.has(name)) models.set(name, { name, appearances: 0, wins: 0, losses: 0, dims: Object.fromEntries(DIMS.map((d) => [d, { sum: 0, n: 0 }])) });
+    if (!models.has(name)) models.set(name, { name, tasks: 0, slots: { ad1: 0, ad2: 0 }, scores: [], gatePass: 0, gated: 0, vsRd: [], h2h: { wins: 0, losses: 0, ties: 0 } });
     return models.get(name);
   };
 
   for (const r of rows) {
     severity[r.bucket] = (severity[r.bucket] || 0) + 1;
     verdicts[r.verdict || 'none'] = (verdicts[r.verdict || 'none'] || 0) + 1;
+    const rec = r.rec;
+    const pctOf = (s) => (typeof rec.rubric_eval?.scores?.[s]?.percentage === 'number' ? rec.rubric_eval.scores[s].percentage : null);
+    const sc = Object.fromEntries(SIDES.map((s) => [s, pctOf(s)]));
+    const model = { ad1: rec.ad1_model || rec.ad1_artifacts?.model || null, ad2: rec.ad2_model || rec.ad2_artifacts?.model || null };
 
-    const a = annotators.get(r.annotator) || { id: r.annotator, tasks: 0, NO_ISSUES: 0, FIXES_MADE: 0, GRAMMAR_ONLY: 0, SBQ: 0, SECOND_OPINION: 0 };
-    a.tasks += 1;
-    if (r.verdict && a[r.verdict] != null) a[r.verdict] += 1;
-    annotators.set(r.annotator, a);
+    if (SIDES.every((s) => sc[s] != null)) {
+      gates.scored += 1;
+      let all = true;
+      for (const s of SIDES) { scores[s].push(sc[s]); if (passesGate(s, sc[s])) gates[s] += 1; else all = false; }
+      if (all) gates.all += 1;
+    }
 
-    const tn = baseTaskName(r.rank);
-    taskNames.set(tn, (taskNames.get(tn) || 0) + 1);
+    for (const slot of ['ad1', 'ad2']) {
+      if (!model[slot]) continue;
+      const m = modelRec(model[slot]);
+      m.tasks += 1; m.slots[slot] += 1;
+      if (sc[slot] != null) { m.scores.push(sc[slot]); m.gated += 1; if (passesGate(slot, sc[slot])) m.gatePass += 1; }
+    }
 
-    const names = resolveNames(r.rank);
-    const entries = Object.entries(r.rank.results); // [key, resultObj]
-    if (entries.length !== 2) continue;
+    const d = rec.domain || 'Unknown';
+    const dom = domains.get(d) || { domain: d, tasks: 0, scores: { golden: [], ad1: [], ad2: [] }, hard: 0, soft: 0 };
+    dom.tasks += 1;
+    for (const s of SIDES) if (sc[s] != null) dom.scores[s].push(sc[s]);
+    if (r.bucket === 'HARD_FAIL') dom.hard += 1;
+    if (r.bucket === 'SOFT_FAIL') dom.soft += 1;
+    domains.set(d, dom);
 
-    // per-model appearances + dimension scores + win/loss
-    let winnerName = null;
-    for (const [k, v] of entries) {
-      const name = names[k];
-      const rec = modelRec(name);
-      rec.appearances += 1;
-      if (v.rank === 1) { rec.wins += 1; winnerName = name; }
-      else if (v.rank === 2) rec.losses += 1;
-      const g = v.grading || {};
-      for (const d of DIMS) {
-        const sc = g[d] && typeof g[d].score === 'number' ? g[d].score : null;
-        if (sc != null) { rec.dims[d].sum += sc; rec.dims[d].n += 1; }
+    // Pairwise preference: 1 = left better … 4 comparable … 7 = right better.
+    for (const c of rec.pref_ranking?.comparisons || []) {
+      const agg = pairAgg.get(c.pair);
+      if (!agg) continue;
+      const vals = (c.dimensions || []).map((x) => Number(x.score)).filter((x) => x >= 1 && x <= 7);
+      if (!vals.length) continue;
+      agg.n += 1;
+      for (const x of c.dimensions || []) {
+        const v = Number(x.score);
+        if (!(v >= 1 && v <= 7)) continue;
+        const dm = agg.dims.get(x.id) || { id: x.id, title: x.title || x.id, vals: [] };
+        dm.vals.push(v);
+        agg.dims.set(x.id, dm);
       }
-    }
-
-    // matchup + preference strength
-    const nameList = entries.map(([k]) => names[k]).sort();
-    const key = nameList.join('  vs  ');
-    if (!matchups.has(key)) {
-      matchups.set(key, { key, a: nameList[0], b: nameList[1], total: 0, perModel: {} });
-    }
-    const mu = matchups.get(key);
-    mu.total += 1;
-    for (const nm of nameList) mu.perModel[nm] ||= { wins: 0, slight: 0, moderate: 0, strong: 0, unrated: 0 };
-    if (winnerName && mu.perModel[winnerName]) {
-      mu.perModel[winnerName].wins += 1;
-      const pr = r.rank.preference_rating;
-      const bucketName = (typeof pr === 'number' && STRENGTH[Math.abs(pr)]) ? STRENGTH[Math.abs(pr)] : 'unrated';
-      mu.perModel[winnerName][bucketName] += 1;
+      const avg = mean(vals);
+      const prefers = avg < 3.5 ? 'left' : avg > 4.5 ? 'right' : null;
+      const L = sc[agg.l], R = sc[agg.r];
+      if (prefers && L != null && R != null && Math.abs(L - R) > 2) {
+        agg.decided += 1;
+        if ((L > R ? 'left' : 'right') === prefers) agg.agree += 1;
+      }
+      // Per model: how it fares against the golden, and head to head.
+      if (agg.l === 'golden' && model[agg.r]) modelRec(model[agg.r]).vsRd.push(avg);
+      if (c.pair === 'ad1_vs_ad2' && model.ad1 && model.ad2) {
+        const a = modelRec(model.ad1).h2h, b = modelRec(model.ad2).h2h;
+        if (prefers === 'left') { a.wins += 1; b.losses += 1; } else if (prefers === 'right') { b.wins += 1; a.losses += 1; } else { a.ties += 1; b.ties += 1; }
+      }
     }
   }
 
-  // finalize model leaderboard
-  const leaderboard = [...models.values()].map((m) => {
-    const dims = {};
-    let oSum = 0, oN = 0;
-    for (const d of DIMS) {
-      const { sum, n } = m.dims[d];
-      dims[d] = { avg: n ? sum / n : null, n };
-      if (n) { oSum += sum; oN += n; }
-    }
-    const decided = m.wins + m.losses;
-    return {
-      name: m.name,
-      appearances: m.appearances,
-      wins: m.wins,
-      losses: m.losses,
-      winRate: decided ? m.wins / decided : null,
-      dims,
-      overall: oN ? oSum / oN : null,
-    };
-  }).sort((x, y) => (y.overall ?? -1) - (x.overall ?? -1));
+  const leaderboard = [...models.values()].map((m) => ({
+    name: m.name,
+    tasks: m.tasks,
+    slots: m.slots,
+    avgScore: r2(mean(m.scores)),
+    gatePassRate: m.gated ? m.gatePass / m.gated : null,
+    // Mean RD-vs-model rating, 1 = RD much better … 4 = comparable.
+    vsRd: r2(mean(m.vsRd)),
+    h2h: m.h2h,
+  })).sort((a, b) => (a.avgScore ?? 999) - (b.avgScore ?? 999));
+
+  const prefs = [...pairAgg.values()].map((p) => ({
+    pair: p.pair, left: p.left, right: p.right, n: p.n,
+    dims: [...p.dims.values()].map((d) => ({
+      id: d.id, title: d.title, mean: r2(mean(d.vals)),
+      left: d.vals.filter((v) => v < 4).length, tie: d.vals.filter((v) => v === 4).length, right: d.vals.filter((v) => v > 4).length,
+    })),
+    agree: p.agree, decided: p.decided,
+  }));
 
   return {
     scope,
     total: rows.length,
     severity,
     verdicts,
-    matchups: [...matchups.values()].sort((a, b) => b.total - a.total),
+    avg: Object.fromEntries(SIDES.map((s) => [s, r2(mean(scores[s]))])),
+    gates,
     leaderboard,
-    annotators: [...annotators.values()].sort((a, b) => b.tasks - a.tasks),
-    taskNames: [...taskNames.entries()].map(([name, count]) => ({ name, count })).sort((a, b) => b.count - a.count),
-    dims: DIMS,
+    prefs,
+    domains: [...domains.values()].map((d) => ({
+      domain: d.domain, tasks: d.tasks, hard: d.hard, soft: d.soft,
+      avg: Object.fromEntries(SIDES.map((s) => [s, r2(mean(d.scores[s]))])),
+    })).sort((a, b) => b.tasks - a.tasks),
   };
 }

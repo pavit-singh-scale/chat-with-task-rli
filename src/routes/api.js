@@ -143,9 +143,9 @@ api.get('/config', (req, res) =>
   res.json({ model: config.litellm.model, deliveryRoots: config.deliveryRoots, workspaceRoot: config.workspaceRoot })
 );
 
-// L12 analytics dashboard data. scope: completed (default) | active | all.
+// L12 analytics dashboard data. scope: active (default) | completed | all.
 api.get('/l12', wrap(async (req, res) => {
-  const scope = ['completed', 'active', 'all'].includes(req.query.scope) ? req.query.scope : 'completed';
+  const scope = ['completed', 'active', 'all'].includes(req.query.scope) ? req.query.scope : 'active';
   res.json(computeL12(scope));
 }));
 
@@ -332,7 +332,7 @@ api.get('/export/all.csv', wrap(async (req, res) => {
   // had no Grammar Fixes case, so 27 tasks exported as the wrong lane.
   const csv = (v) => { const s = String(v ?? ''); return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
   const ws = listWorkspace();
-  const lines = ['task_id,bucket,lane,verdict,claimed_by,tags,has_review,has_remediation,grammar_only,delivered,audit_tags,pending_fixes,writing_band_as_delivered'];
+  const lines = ['task_id,bucket,lane,verdict,claimed_by,tags,has_review,has_remediation,delivered,audit_tags,pending_fixes,writing_band_as_delivered'];
   for (const [bucket, tasks] of Object.entries(ws)) {
     for (const t of tasks) {
       if (t.tour) continue;   // dummy tour tasks aren't real audit tasks
@@ -341,7 +341,7 @@ api.get('/export/all.csv', wrap(async (req, res) => {
       // which hides delivered tasks behind a toggle.
       lines.push([
         t.id, bucket, LANE_LABELS[laneOf(t)], t.verdict || '', t.claimedBy || '',
-        tags, t.hasReview, t.hasRemediation, !!t.grammarOnly, !!t.delivered,
+        tags, t.hasReview, t.hasRemediation, !!t.delivered,
         (t.audit?.tags || []).join('|'), t.pendingFixes ?? 0, t.audit?.writing_band_as_delivered || '',
       ].map(csv).join(','));
     }

@@ -226,7 +226,7 @@ function writeAuditState(dest, auditRow, warnings) {
 
 // Verdicts that mean "still needs work" — re-uploading such a task is a re-audit,
 // so we drop the reviewer's verdict and claim to send it back to the OPEN lane.
-const REOPEN_VERDICTS = new Set(['SBQ', 'FIXES_MADE', 'GRAMMAR_ONLY']);
+const REOPEN_VERDICTS = new Set(['SBQ', 'FIXES_MADE']);
 
 function reopenIfStale(studioJson) {
   let state;

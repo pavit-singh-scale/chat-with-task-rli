@@ -4,7 +4,7 @@ import { writeJsonAtomic } from './fixes.js';
 import { taskDir, httpError } from './workspace.js';
 
 // Per-task review state, shared across users: _studio.json in the task folder.
-export const VERDICTS = ['NO_ISSUES', 'FIXES_MADE', 'GRAMMAR_ONLY', 'SBQ', 'SECOND_OPINION'];
+export const VERDICTS = ['NO_ISSUES', 'FIXES_MADE', 'SBQ', 'SECOND_OPINION'];
 
 export function getState(bucket, id) {
   try {

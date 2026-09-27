@@ -5,7 +5,6 @@ const ORDER = ['HARD_FAIL', 'SOFT_FAIL', 'PASS', 'UNSORTED'];
 const VERDICT_LABELS = {
   NO_ISSUES: 'No Issues',
   FIXES_MADE: 'Fixes made',
-  GRAMMAR_ONLY: 'Grammar-only',
   SBQ: 'SBQ',
   SECOND_OPINION: 'Second Opinion Needed',
 };
@@ -15,12 +14,12 @@ const SEV_LABEL = { HARD_FAIL: 'Fail', SOFT_FAIL: 'Non-fail', PASS: 'No issues',
 const SEV_TAG = { HARD_FAIL: 'tag--hard', SOFT_FAIL: 'tag--soft', PASS: 'tag--pass', UNSORTED: '' };
 // Verdicts are states, not categories — a three-step ramp, nothing else.
 const VERDICT_STATE = {
-  NO_ISSUES: 'is-ok', FIXES_MADE: 'is-ok', GRAMMAR_ONLY: 'is-ok',
+  NO_ISSUES: 'is-ok', FIXES_MADE: 'is-ok',
   SECOND_OPINION: 'is-warn', SBQ: 'is-fail',
 };
 // Workflow lanes — derived from claim + decision state. A decision marks a
 // ticket "seen" (Resolved), except Second Opinion which stays in its own lane.
-const RESOLVED_VERDICTS = new Set(['NO_ISSUES', 'FIXES_MADE', 'GRAMMAR_ONLY', 'SBQ']);
+const RESOLVED_VERDICTS = new Set(['NO_ISSUES', 'FIXES_MADE', 'SBQ']);
 const LANES = [
   { key: 'OPEN', name: 'Open', hint: 'Unclaimed, no decision yet.' },
   { key: 'REVIEW', name: 'In review', hint: 'Claimed and being audited.' },
@@ -153,7 +152,7 @@ async function runBackfillCheck() {
       el('a', { class: 'mono bf__id', href: `${window.__base__ || ''}/task/${i.bucket}/${i.id}` }, i.id),
       i.upstream ? el('span', { class: 'bf__lvl' }, `L${i.upstream.level} · ${i.upstream.status}`) : el('span', { class: 'bf__lvl dim' }, 'no pipeline row'),
       matchChip(i.labelMatch),
-      el('span', { class: 'bf__why' }, i.ready ? (i.grammarOnly ? 'ready · grammar-only' : 'ready') : i.blockers.join(' · '),
+      el('span', { class: 'bf__why' }, i.ready ? 'ready' : i.blockers.join(' · '),
         warns.length ? el('span', { class: 'bf__expand', 'aria-hidden': 'true' }, ' ▾') : null));
     if (!warns.length) return main;
     // The warning COUNT was a dead end — click the row to see what the
@@ -306,7 +305,6 @@ function pickResolution(x, y) {
       el('div', { class: 'drop-menu-title' }, 'Mark resolved as'),
       el('button', { onclick: () => choose('NO_ISSUES') }, 'No Issues'),
       el('button', { onclick: () => choose('FIXES_MADE') }, 'Fixes made'),
-      el('button', { onclick: () => choose('GRAMMAR_ONLY') }, 'Grammar-only'),
       el('button', { onclick: () => choose('SBQ') }, 'SBQ'),
       el('button', { class: 'cancel', onclick: () => choose(null) }, 'Cancel'),
     );
@@ -1055,7 +1053,7 @@ const BOARD_TOUR = [
   { selector: '.lane[data-lane="SECOND_OPINION"]', title: 'Second opinions, with the "why"', body: 'Tasks flagged for another reviewer land here — and the key issue the first reviewer wrote shows right on the card, so whoever picks it up knows the crux instantly.' },
   { selector: '#actions-btn', title: 'Actions', body: 'Everything bulk lives behind one button: move a whole severity or lane, move a pasted list of IDs, export CSV or per-lane IDs, review and undo recent actions, and (admins) generate docs or archive completed work. Each move shows you what matches before you commit.', onShow: () => document.getElementById('drawer').hidden && document.getElementById('actions-btn').click() },
   { selector: '#drawer', title: 'Preview, then commit', body: 'The Move panel reads as a sentence and tells you how many tasks match — and how many are already there and will be skipped — before you press the button. Everything you do here is undoable from the History tab.' },
-  { title: 'Now the fun part — the task itself', body: 'The board is the map; the task page is where you actually audit: trajectories, the annotator\'s grading, and an AI copilot. Let me open your sandbox task and keep going.', nextLabel: 'Open the task ▸', onNext: openTaskForTour },
+  { title: 'Now the fun part — the task itself', body: 'The board is the map; the task page is where you actually audit: the brief, the three deliverables, the contributor\'s rubric and ranking, the eval, and Acey. Your sandbox is a copy of a real RLI task — let me open it.', nextLabel: 'Open the task ▸', onNext: openTaskForTour },
 ];
 
 async function verifyDragged() {

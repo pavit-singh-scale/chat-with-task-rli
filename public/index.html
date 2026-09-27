@@ -68,17 +68,16 @@
           <option value="OPEN">Open</option>
           <option value="REVIEW">In review</option>
           <option value="SECOND_OPINION">Needs 2nd opinion</option>
-          <option value="GRAMMAR">Grammar fixes</option>
+          <option value="STAGING">Staging</option>
           <option value="RESOLVED">Resolved</option>
         </select>
         <span>to</span>
         <select class="select" id="bv-to" aria-label="destination lane">
           <option value="RESOLVED:NO_ISSUES">Resolved · No issues</option>
           <option value="RESOLVED:FIXES_MADE">Resolved · Fixes made</option>
-          <option value="RESOLVED:GRAMMAR_ONLY">Resolved · Grammar-only</option>
           <option value="RESOLVED:SBQ">Resolved · SBQ</option>
           <option value="SECOND_OPINION">Needs 2nd opinion</option>
-          <option value="GRAMMAR">Grammar fixes</option>
+          <option value="STAGING">Staging</option>
           <option value="REVIEW">In review</option>
           <option value="OPEN">Open</option>
           <option value="REOPEN">Reopen · clear verdict</option>
@@ -107,10 +106,9 @@
         <select class="select" id="idmove-to" aria-label="destination lane">
           <option value="RESOLVED:NO_ISSUES">Resolved · No issues</option>
           <option value="RESOLVED:FIXES_MADE">Resolved · Fixes made</option>
-          <option value="RESOLVED:GRAMMAR_ONLY">Resolved · Grammar-only</option>
           <option value="RESOLVED:SBQ">Resolved · SBQ</option>
           <option value="SECOND_OPINION">Needs 2nd opinion</option>
-          <option value="GRAMMAR">Grammar fixes</option>
+          <option value="STAGING">Staging</option>
           <option value="REVIEW">In review</option>
           <option value="OPEN">Open</option>
           <option value="REOPEN">Reopen · clear verdict</option>
@@ -126,7 +124,7 @@
       <div class="drawer__row">
         <a class="btn" id="export-csv" href="#">Export all · CSV</a>
         <span class="drawer__hint mono">task_id, bucket, lane, verdict, claimed_by, tags, has_review,
-          has_remediation, grammar_only, delivered</span>
+          has_remediation, delivered</span>
       </div>
       <div class="drawer__row" id="export-ids"></div>
     </div>

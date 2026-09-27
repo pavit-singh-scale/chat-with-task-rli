@@ -56,17 +56,14 @@
       <p class="rd-note" id="q-reviewers-foot"></p>
     </section>
 
-    <h2 class="admin-h2">Model performance leaderboard <span class="admin-sub">avg score per dimension (1–3) · click a column to re-rank</span></h2>
+    <h2 class="admin-h2">Models <span class="admin-sub">rubric score in their slot · stumping gate · how they rate against the golden and each other · click a column to re-rank</span></h2>
     <div class="admin-table-wrap"><table class="admin-table l12-leaderboard" id="l12-leaderboard"></table></div>
 
-    <h2 class="admin-h2">Matchups &amp; win rates <span class="admin-sub">winner by rank · strength from preference rating</span></h2>
-    <div id="l12-matchups"></div>
+    <h2 class="admin-h2">Pairwise preferences <span class="admin-sub">mean 1–7 per dimension (1 = left better · 4 = comparable · 7 = right better) · does the preference agree with the rubric?</span></h2>
+    <div class="l12-prefs" id="l12-prefs"></div>
 
-    <h2 class="admin-h2">Annotators <span class="admin-sub">tasks &amp; decisions per annotator ID</span></h2>
-    <div class="admin-table-wrap"><table class="admin-table" id="l12-annotators"></table></div>
-
-    <h2 class="admin-h2">Task instances <span class="admin-sub">how many tasks share each name</span></h2>
-    <div class="admin-table-wrap"><table class="admin-table" id="l12-tasknames"></table></div>
+    <h2 class="admin-h2">Domains <span class="admin-sub">tasks, average scores and eval fails per domain</span></h2>
+    <div class="admin-table-wrap"><table class="admin-table" id="l12-domains"></table></div>
   </main>
 
   <script type="module" src="/js/l12.js"></script>

@@ -23,7 +23,7 @@ export const TEAM = [
     username: 'luis',
     name: 'Luis Monsalve',
     remit: 'Pipeline & throughput (STO)',
-    domains: ['throughput', 'missions', 'team_management', 'pay_efficiency', 'onsites', 'cohort_growth', 'superattempters'],
+    domains: ['throughput', 'missions', 'team_management', 'pay_efficiency', 'onsites', 'cohort_growth'],
     blurb: 'Runs the PKJA pipeline: CB allocations and onboarding, daily action items, pay rates, what ships each day.',
   },
   {

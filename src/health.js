@@ -213,11 +213,10 @@ function checkContributors(q) {
   if (promote.length) {
     out.push(signal({
       id: 'contributors-promote',
-      domain: 'superattempters',
+      domain: 'cohort_growth',
       severity: 'p2',
       title: `${int(promote.length)} promote candidates waiting`,
-      detail: 'Attempters scoring 4.0+ with a poor-rate under 5%. These are the superattempter '
-        + 'cohort intake — they go stale if they sit.',
+      detail: 'Attempters scoring 4.0+ with a poor-rate under 5% — ready to promote. Candidates go stale if they sit.',
       metric: { value: promote.length, threshold: 1, unit: 'people' },
       link: '/l12.html#q-actions',
     }));

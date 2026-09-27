@@ -287,7 +287,6 @@ async function buildSidebar() {
     refreshChatIntro?.();
     rliData = await rli.load();
     document.getElementById('dl-rank').firstChild.textContent = 'Download task.json ';
-    document.querySelector('#verdict-select option[value="GRAMMAR_ONLY"]')?.remove();
   }
   renderTabs();
   buildFilesMenu();
@@ -1197,7 +1196,6 @@ function plCard(value, label, sub) {
 const CHECK_VERDS = [
   ['NO_ISSUES', 'No Issues'],
   ['FIXES_MADE', 'Fixes made'],
-  ['GRAMMAR_ONLY', 'Grammar-only'],
   ['SBQ', 'SBQ'],
   ['SECOND_OPINION', 'Second Opinion Needed'],
 ];
@@ -2736,26 +2734,34 @@ let copilotBaseline = 0;
 function primeCopilot() {
   setChatCollapsed(false);
   copilotBaseline = chatLog.querySelectorAll('.chat-msg.assistant').length;
-  if (!chatText.value.trim()) chatText.value = 'Did the winning model really pass all the tests it claims? Verify against the trajectory.';
+  if (!chatText.value.trim()) chatText.value = 'Is AD1\'s score defensible? Check the verdicts closest to the 70% gate against the renders.';
   chatText.focus();
 }
 const verifyCopilot = () => chatLog.querySelectorAll('.chat-msg.assistant').length > copilotBaseline;
 const verifyDecision = () => !!document.getElementById('verdict-select').value;
+// Any fix decided on the sandbox (approve, edit or deny) counts.
+const verifyFixDecided = async () => {
+  try { const r = await api(`/task/${bucket}/${taskId}/fixes`); return r.items.some((i) => i.decision && i.decision !== 'pending'); }
+  catch { return false; }
+};
+const tourTab = (key) => () => document.querySelector(`#tabs button[data-tab="${key}"]`)?.click();
 
 const TASK_TOUR = [
-  { title: 'Inside a task — your sandbox 🧪', body: 'This is a private sandbox task: claim it, chat, decide, whatever you like — it\'s deleted when the tour ends, so nothing here is real. Everything you audit lives on this one screen.' },
-  // The sidebar these steps used to point at (#nav-docs / #nav-trajs) is gone;
-  // the tab bar and its Trajectories tab are the current homes.
-  { selector: '#tabs', title: 'Documents', body: 'Task definition & milestones, the V11 QC spec, and CB responses — the annotator\'s rank.json in a clean UI (summary, per-dimension grading, failure modes, and the A↔B decision). The generated Review, Remediation, and your Checklist live here too.' },
-  { selector: '#tabs button[data-tab="trajectories"]', title: 'Trajectory viewer', body: 'Read Model A or Model B on their own, or Compare A ↔ B side by side to see exactly where the two runs diverge — matching prompts line up, and one-sided turns are clearly called out.' },
-  { selector: '#viewer', title: 'Clickable citation "chips"', body: 'Everywhere you read — docs, CB responses, copilot answers — you\'ll see little chips. A traj:// chip jumps to an exact trajectory turn; a spec:// chip opens the QC rubric row that applies; a /rank.json field chip lands you in CB responses. Each one scrolls to the precise spot and highlights it — even a specific quoted phrase inside a response. See one? Click it.' },
-  { selector: '#chat-panel', title: 'Meet Acey — try it 🚀', body: 'Ask Acey anything about this task. It reads and searches both trajectories and cross-checks the rank.json, then answers with those same clickable chips so you can verify in one click. I\'ve dropped a starter question in the box — click a suggestion or hit Send, and I\'ll wait for the reply.',
+  { title: 'Inside a task — your sandbox 🧪', body: 'This sandbox is a copy of a real RLI task: approve fixes, chat, decide — whatever you like. It\'s deleted when the tour ends and the original is never touched.' },
+  { selector: '.rli-sum', title: 'The numbers that decide a task', body: 'RD, AD1 and AD2 rubric scores against their gates (RD ≥ 97, AD1 ≤ 70, AD2 ≤ 50) and the weight mix (quality must be ≥ 65% of positive weight). Red means a gate is breached.' },
+  { selector: '#tabs', title: 'Everything on one page', body: 'Brief and inputs, the three Deliverables, the contributor\'s Rubric and Preference ranking, then the eval\'s Review and Remediation, and the QC spec itself.' },
+  { selector: '#tabs button[data-tab="deliverables"]', title: 'Look at the actual work', body: 'RD (the human golden) beside AD1 and AD2. Orbit 3D models, flip through renders with ← →, play video and audio — with duration, levels and clipping measured for you. Most verdicts are visual, so this is where they get checked.', onShow: tourTab('deliverables') },
+  { selector: '#tabs button[data-tab="review"]', title: 'The eval, in one list', body: 'One row per finding: severity, spec dimension, where it is, and what it does to the scores. Click a row for the evidence; mark each ✓ valid or ⚑ over-flag. Scores up top show printed → after your fixes.', onShow: tourTab('review') },
+  { selector: '#tabs button[data-tab="remediation"]', title: 'Try it: approve a fix ✅', body: 'Each fix is a proposed edit to the record — flip a verdict, rewrite a justification. Approve, Edit or Deny one, and watch the scores update. (It only changes this sandbox.)', onShow: tourTab('remediation'),
+    try: { action: 'fix', hint: 'Waiting for you to approve, edit or deny a fix…', verify: verifyFixDecided } },
+  { selector: '#viewer', title: 'Clickable citation "chips"', body: 'Everywhere you read — the eval, Acey\'s answers — chips jump to the exact spot: a criterion (and one side\'s verdict on it), an artifact, a preference cell, or the QC spec dimension that applies.' },
+  { selector: '#chat-panel', title: 'Meet Acey — try it 🚀', body: 'Ask Acey anything about this task. It reads the rubric, opens the renders to check a verdict against what\'s actually there, and measures video and audio — then answers with the same clickable chips. I\'ve dropped a starter question in the box — hit Send and I\'ll wait for the reply.',
     onShow: primeCopilot, try: { action: 'copilot', hint: 'Waiting for Acey to answer…', verify: verifyCopilot } },
-  { selector: '#verdict-select', title: 'Try it: record a decision ✅', body: 'Set a decision for this sandbox task — No Issues / Fixes made / SBQ / Second Opinion. Pick Second Opinion and it\'ll ask for the key issue, which then shows on the board card for the next reviewer.',
+  { selector: '#verdict-select', title: 'Try it: record a decision', body: 'Set a decision for this sandbox task — No Issues / Fixes made / SBQ / Second Opinion. Pick Second Opinion and it\'ll ask for the key issue, which then shows on the board card for the next reviewer.',
     try: { action: 'decision', hint: 'Waiting for you to pick a decision…', verify: verifyDecision } },
-  { selector: '#claim-btn', title: 'Claim the task', body: 'Claim it so the team knows you\'re auditing it — your name then shows on the board for everyone. (Feel free to try it.)' },
-  { selector: '#sev-chip', title: 'Reclassify severity', body: 'Landed in the wrong bucket? Click here to move the task between Hard / Soft / Pass.' },
-  { title: 'You\'re all set 🎉', body: 'That\'s the full flow — board to decision. I\'ll clean up your sandbox now and take you back to the board. Replay anytime from the ✦ Tour button. Happy auditing!' },
+  { selector: '#claim-btn', title: 'Claim the task', body: 'Claim it so the team knows you\'re auditing it — your name then shows on the board for everyone.' },
+  { selector: '#sev-chip', title: 'Reclassify severity', body: 'Landed in the wrong bucket? Click here to move the task between Fail / Non-fail / No issues.' },
+  { title: 'You\'re all set 🎉', body: 'That\'s the full flow — board to decision. I\'ll clean up your sandbox now and take you back to the board. Replay anytime from the ✦ Tour button.' },
 ];
 
 function runTaskTour() { setChatCollapsed(false); startTour(TASK_TOUR, { onExit: endTaskTourCleanup, onLog: postTourLog }); }
@@ -2877,5 +2883,8 @@ await loadChat();
 // Continue the single tour that started on the board (it opened this sandbox task).
 if (sessionStorage.getItem('cwt_tour_resume')) {
   sessionStorage.removeItem('cwt_tour_resume');
+  // The tour drops steps whose target isn't on the page yet — give the RLI
+  // score strip (rendered async) a moment to land first.
+  for (let i = 0; i < 30 && meta?.kind === 'rli' && !document.querySelector('.rli-sum'); i++) await new Promise((r) => setTimeout(r, 100));
   runTaskTour();
 }
