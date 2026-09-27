@@ -299,11 +299,11 @@ export function createRli({ bucket, taskId, onCrit, onSpec, onOpenDoc, onCompare
   }
 
   // ---------- Deliverables ----------
-  // Two ways in: BY ARTIFACT (one deliverable at a time, RD | AD1 | AD2 at
-  // equal size — the comparison graders actually make) and BY SIDE (each
-  // side's whole delivery in a column). Inputs live here too, as a third view.
-  let delivMode = 'artifact';
-  const delivState = { slot: 0, layout: 'sbs', side: 'golden' };
+  // One view: pick a deliverable on the left, see RD | AD1 | AD2 of it side by
+  // side — the comparison graders actually make. A single file opens full size
+  // in the lightbox; the brief's input files live on the Brief tab.
+  let delivMode = 'artifact'; // kept for callers; there is only one view now
+  const delivState = { slot: 0 };
   const KIND_NAME = { model3d: '3D model', cad: 'CAD / scene file', image: 'Image', video: 'Video', audio: 'Audio', pdf: 'PDF', design: 'Design file', sheet: 'Spreadsheet', doc: 'Document', text: 'Text', archive: 'Archive', other: 'File' };
   const KIND_RANK = ['model3d', 'cad', 'image', 'video', 'audio', 'pdf', 'design', 'sheet', 'doc', 'text', 'archive', 'other'];
   const normName = (n) => n.toLowerCase().replace(/\.[^.]+$/, '').replace(/[\s_\-.]+/g, '').replace(/v?\d{3}$|final$/g, '');
@@ -395,18 +395,10 @@ export function createRli({ bucket, taskId, onCrit, onSpec, onOpenDoc, onCompare
           el('span', { class: 'art-slot__marks' }, sides.map((s) => { const m = slotMark(sl.files[s]); return el('i', { class: m.cls, title: `${SIDE_LABEL[s]}: ${m.t}` }, m.g); })))));
       requestAnimationFrame(() => rail.querySelector('.art-slot.is-on')?.scrollIntoView({ block: 'nearest', inline: 'nearest' }));
       onSlot?.(slot.id);
-      const layoutSeg = el('div', { class: 'seg rli-seg' },
-        ...[['sbs', 'Side by side'], ['one', 'One at a time']].map(([k, l]) => el('button', { type: 'button', 'aria-pressed': String(delivState.layout === k), onclick: () => { delivState.layout = k; render(); } }, l)));
       const head = el('div', { class: 'art-head' },
-        el('div', { class: 'art-head__t' }, el('h3', {}, slot.label), el('span', {}, `${delivState.slot + 1} of ${slots.length} · ← → to step${delivState.layout === 'one' ? ' · 1 2 3 to pick a side' : ''}`)),
-        el('span', { class: 'spacer' }), layoutSeg);
-      if (delivState.layout === 'sbs') {
-        main.replaceChildren(head, el('div', { class: 'art-panes' }, sides.map((s) => pane(s, slot.files[s]))));
-      } else {
-        const tabs = el('div', { class: 'seg rli-seg art-sidetabs' }, sides.map((s, i) => el('button', { type: 'button', 'aria-pressed': String(delivState.side === s),
-          onclick: () => { delivState.side = s; render(); } }, `${i + 1} · ${SIDE_LABEL[s]}`, slotMark(slot.files[s]).cls === 'is-missing' ? ' (none)' : '')));
-        main.replaceChildren(head, tabs, pane(delivState.side, slot.files[delivState.side], true));
-      }
+        el('div', { class: 'art-head__t' }, el('h3', {}, slot.label),
+          el('span', {}, `${delivState.slot + 1} of ${slots.length} · ← → to step · click a file name to open it full size`)));
+      main.replaceChildren(head, el('div', { class: 'art-panes' }, sides.map((s) => pane(s, slot.files[s]))));
     };
     render();
     const root = el('div', { class: 'art' }, rail, main);
@@ -415,7 +407,6 @@ export function createRli({ bucket, taskId, onCrit, onSpec, onOpenDoc, onCompare
       if (lb || e.target.closest?.('input, textarea, select, [contenteditable]') || e.metaKey || e.ctrlKey || e.altKey) return;
       if (e.key === 'ArrowRight' || e.key === 'ArrowDown') { delivState.slot = Math.min(slots.length - 1, delivState.slot + 1); render(); e.preventDefault(); }
       else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') { delivState.slot = Math.max(0, delivState.slot - 1); render(); e.preventDefault(); }
-      else if (['1', '2', '3'].includes(e.key)) { delivState.side = sides[Number(e.key) - 1]; delivState.layout = 'one'; render(); }
     };
     document.addEventListener('keydown', onKeys);
     root.selectSlot = (id) => { const i = slots.findIndex((x) => x.id === id); if (i >= 0) { delivState.slot = i; render(); } return i >= 0; };
@@ -425,29 +416,9 @@ export function createRli({ bucket, taskId, onCrit, onSpec, onOpenDoc, onCompare
 
   async function buildDeliverables() {
     const t = await load();
-    const body = el('div', { class: 'rli-deliv__body' });
-    const seg = el('div', { class: 'seg rli-seg', role: 'group' });
-    const modes = [
-      ['artifact', 'By artifact'],
-      ['compare', 'By side'],
-      ['input', `Inputs (${t.files.input.length})`],
-    ];
-    if (!modes.some(([m]) => m === delivMode)) delivMode = 'artifact';
-    const render = () => {
-      for (const b of seg.children) b.setAttribute('aria-pressed', String(b.dataset.mode === delivMode));
-      if (delivMode === 'artifact') mount(body, artifactView(t));
-      else if (delivMode === 'compare') mount(body, el('div', { class: 'rli-cols' }, sideColumn(t, 'golden', { dense: true }), sideColumn(t, 'ad1', { dense: true }), sideColumn(t, 'ad2', { dense: true })));
-      else mount(body, el('div', { class: 'rli-cols rli-cols--one' }, sideColumn(t, delivMode)));
-    };
-    for (const [m, label] of modes) {
-      seg.append(el('button', { type: 'button', 'data-mode': m, 'aria-pressed': 'false', onclick: () => { delivMode = m; render(); } }, label));
-    }
-    render();
-    const root = el('div', { class: 'rli rli-deliv' },
-      el('div', { class: 'rli-toolbar', title: 'Click any file to open it. In the viewer ← → step through a side; C compares the same file across RD / AD1 / AD2.' }, seg),
-      body,
-    );
-    root.selectSlot = (id) => { delivMode = 'artifact'; render(); return body.firstChild?.selectSlot?.(id); };
+    const view = artifactView(t);
+    const root = el('div', { class: 'rli rli-deliv' }, view);
+    root.selectSlot = (id) => view.selectSlot?.(id);
     return root;
   }
 
@@ -845,43 +816,39 @@ export function createRli({ bucket, taskId, onCrit, onSpec, onOpenDoc, onCompare
   }
 
   // ---------- Rubric ----------
-  // One row per criterion: what it asks, how heavy it is, and the three
-  // verdicts — with the side that disagrees called out, because "why do the
-  // verdicts differ" is the question an auditor opens this tab to answer.
+  // One flat, sortable table: what each criterion asks, its weight, and the
+  // three verdicts. Deliberately quiet — red only where something failed.
   const rubricFilter = { q: '', cat: '', only: '' };
-  const rubricOpen = { agree: false };
+  const rubricSort = { key: 'n', dir: 1 };
   const SIDE_KEYS = ['golden', 'ad1', 'ad2'];
-  // The side whose verdict differs from the other two, or null.
-  function oddOne(c) {
-    const g = SIDE_KEYS.map((s) => c.verdicts[s].good);
-    if (g.some((x) => x == null)) return null;
-    if (g[0] === g[1] && g[1] === g[2]) return null;
-    return SIDE_KEYS[g[0] === g[1] ? 2 : g[0] === g[2] ? 1 : 0];
-  }
-  function splitNote(c) {
-    const odd = oddOne(c);
-    if (odd) return { text: `${SIDE_LABEL[odd]} is the odd one out`, cls: 'is-split' };
-    const g = c.verdicts.golden.good;
-    if (g == null) return { text: 'Verdict missing', cls: '' };
-    return g ? { text: 'All three pass', cls: '' } : { text: 'All three fail', cls: 'is-allfail' };
-  }
+  const splitVerdicts = (c) => new Set(SIDE_KEYS.map((s) => c.verdicts[s].good)).size > 1;
   const FILTERS = [
     ['', 'All', () => true],
-    ['split', 'Verdicts differ', (c) => !!oddOne(c)],
+    ['split', 'Verdicts differ', splitVerdicts],
     ['goldenfail', 'RD fails', (c) => c.verdicts.golden.good === false],
-    ['ad1only', 'Only AD1 fails', (c) => oddOne(c) === 'ad1' && c.verdicts.ad1.good === false],
+    ['ad1only', 'Only AD1 fails', (c) => c.verdicts.golden.good && c.verdicts.ad1.good === false && c.verdicts.ad2.good],
     ['heavy', 'Weight ≥ 8', (c) => Math.abs(c.weight) >= 8],
     ['negative', 'Penalties', (c) => c.weight < 0],
   ];
+  // good=false first when sorting a verdict column ascending — "show me what failed".
+  const SORTERS = {
+    n: (c) => c.n,
+    title: (c) => c.title.toLowerCase(),
+    weight: (c) => c.weight,
+    golden: (c) => (c.verdicts.golden.good === false ? 0 : 1),
+    ad1: (c) => (c.verdicts.ad1.good === false ? 0 : 1),
+    ad2: (c) => (c.verdicts.ad2.good === false ? 0 : 1),
+  };
 
   async function buildRubric() {
     const t = await load();
     const weights = t.checks.find((c) => c.id === 'weights');
     const mix = weights?.mix;
     const cats = [...new Set(t.criteria.map((c) => c.category))].sort();
-    const maxW = Math.max(1, ...t.criteria.map((c) => Math.abs(c.weight)));
     const body = el('div', { class: 'rub-body' });
     const chips = el('div', { class: 'rub-chips' });
+    const headRow = el('div', { class: 'rub-head' });
+    const count = el('span', { class: 'rub-count' });
 
     const baseMatch = (c) => {
       const f = rubricFilter;
@@ -889,47 +856,49 @@ export function createRli({ bucket, taskId, onCrit, onSpec, onOpenDoc, onCompare
       if (f.cat && c.category !== f.cat) return false;
       return true;
     };
-    const verdictCell = (c, side, odd) => {
+    const verdictCell = (c, side) => {
       const v = c.verdicts[side];
       const neg = c.weight < 0;
       if (v.passed == null) return el('div', { class: 'rub-v is-na' }, el('b', {}, '—'), el('span', {}, 'n/a'));
       const label = neg ? (v.passed ? 'Present' : 'Absent') : (v.passed ? 'Pass' : 'Fail');
-      return el('div', { class: `rub-v ${v.good ? 'is-good' : 'is-bad'}${odd === side ? ' is-odd' : ''}`, title: `${SIDE_LABEL[side]}: ${label}${neg ? ' (penalty — present means the defect is there)' : ''}` },
+      return el('div', { class: `rub-v ${v.good ? 'is-good' : 'is-bad'}`, title: `${SIDE_LABEL[side]}: ${label}${neg ? ' (penalty — present means the defect is there)' : ''}` },
         el('b', {}, v.good ? '✓' : '✕'), el('span', {}, label));
     };
     const row = (c) => {
-      const odd = oddOne(c);
-      const note = splitNote(c);
       const detail = el('div', { class: 'rub-detail', hidden: '' },
         SIDE_KEYS.map((s) => {
           const v = c.verdicts[s];
           const label = c.weight < 0 ? (v.passed ? 'defect present' : 'defect absent') : (v.passed ? 'passed' : 'failed');
-          return el('div', { class: `rli-just rub-just ${v.good ? 'is-good' : v.good === false ? 'is-bad' : ''}${odd === s ? ' is-odd' : ''}` },
+          return el('div', { class: `rli-just rub-just${v.good === false ? ' is-bad' : ''}` },
             el('div', { class: 'rub-just__head' },
               el('b', {}, SIDE_LABEL[s]), el('span', { class: 'rub-just__model' }, modelLine(t, s)),
-              el('span', { class: `rub-just__verdict ${v.good ? 'is-good' : 'is-bad'}` }, label),
-              odd === s ? el('span', { class: 'rub-odd-tag' }, 'odd one out') : null),
+              el('span', { class: `rub-just__verdict ${v.good === false ? 'is-bad' : ''}` }, label)),
             el('div', { class: 'rub-just__text' }, v.justification || '(no justification)'));
         }),
         onCompare ? el('div', { class: 'rub-detail__foot' }, el('button', { type: 'button', class: 'link', onclick: () => onCompare() }, 'Compare the deliverables side by side →')) : null);
-      const wPct = (Math.abs(c.weight) / maxW) * 100;
-      const node = el('div', { class: `rub-row${c.weight < 0 ? ' is-neg' : ''}${odd ? ' is-split' : ''}`, id: `crit-C${c.n}` },
+      const node = el('div', { class: `rub-row${c.weight < 0 ? ' is-neg' : ''}`, id: `crit-C${c.n}` },
         el('button', { type: 'button', class: 'rub-row__main', 'aria-expanded': 'false',
           onclick: () => { detail.hidden = !detail.hidden; node.classList.toggle('is-open', !detail.hidden); node.firstChild.setAttribute('aria-expanded', String(!detail.hidden)); } },
           el('span', { class: 'rub-n' }, `C${c.n}`),
           el('span', { class: 'rub-crit' },
-            el('span', { class: 'rub-title' }, c.weight < 0 ? el('span', { class: 'rub-pen' }, 'Penalty') : null, c.title),
-            el('span', { class: 'rub-meta' }, el('span', { class: `rub-cat b-${c.bucket}` }, c.category || '—'), el('span', { class: `rub-note ${note.cls}` }, note.text))),
-          el('span', { class: `rub-w ${c.weight < 0 ? 'is-neg' : ''}`, title: `weight ${c.weight}` },
-            el('span', { class: 'rub-w__bar' }, el('i', { style: `width:${wPct}%` })),
-            el('b', {}, c.weight > 0 ? `+${c.weight}` : String(c.weight))),
-          ...SIDE_KEYS.map((s) => verdictCell(c, s, odd))),
+            el('span', { class: 'rub-title' }, c.title),
+            el('span', { class: 'rub-meta' }, c.category || '—', c.weight < 0 ? el('span', { class: 'rub-pen' }, 'penalty') : null)),
+          el('span', { class: `rub-w${c.weight < 0 ? ' is-neg' : ''}` }, c.weight > 0 ? `+${c.weight}` : String(c.weight)),
+          ...SIDE_KEYS.map((s) => verdictCell(c, s))),
         detail);
       return node;
     };
-    const head = () => el('div', { class: 'rub-head' },
-      el('span', {}, '#'), el('span', {}, 'Criterion'), el('span', {}, 'Weight'),
-      ...SIDE_KEYS.map((s) => el('span', { class: 'rub-head__side', title: modelLine(t, s) }, SIDE_LABEL[s])));
+    const sortHead = () => {
+      const col = (key, label, cls = '', title = '') => {
+        const on = rubricSort.key === key;
+        return el('button', { type: 'button', class: `rub-sort ${cls}${on ? ' is-on' : ''}`, title: title || `Sort by ${label}`,
+          'aria-sort': on ? (rubricSort.dir > 0 ? 'ascending' : 'descending') : 'none',
+          onclick: () => { if (rubricSort.key === key) rubricSort.dir *= -1; else Object.assign(rubricSort, { key, dir: key === 'weight' ? -1 : 1 }); render(); } },
+          label, el('i', {}, on ? (rubricSort.dir > 0 ? '▲' : '▼') : ''));
+      };
+      headRow.replaceChildren(col('n', '#'), col('title', 'Criterion'), col('weight', 'Weight', 'is-num'),
+        ...SIDE_KEYS.map((s) => col(s, SIDE_LABEL[s], 'is-side', `Sort by ${SIDE_LABEL[s]} verdict — failures first (${modelLine(t, s)})`)));
+    };
 
     const render = () => {
       const base = t.criteria.filter(baseMatch);
@@ -938,24 +907,11 @@ export function createRli({ bucket, taskId, onCrit, onSpec, onOpenDoc, onCompare
         onclick: () => { rubricFilter.only = key; render(); },
       }, label, el('span', {}, String(base.filter(fn).length)))));
       const fn = FILTERS.find(([k]) => k === rubricFilter.only)?.[2] || (() => true);
-      const shown = base.filter(fn);
-      if (!shown.length) { body.replaceChildren(el('div', { class: 'rub-empty' }, 'No criteria match.')); return; }
-      // Unfiltered: split verdicts first and open; agreements folded underneath.
-      if (!rubricFilter.only) {
-        const split = shown.filter((c) => oddOne(c));
-        const agree = shown.filter((c) => !oddOne(c));
-        const agreeWrap = el('div', { class: 'rub-group__rows', hidden: rubricOpen.agree ? null : '' }, agree.map(row));
-        const agreeHead = el('button', { type: 'button', class: 'rub-group', 'aria-expanded': String(rubricOpen.agree),
-          onclick: () => { rubricOpen.agree = !rubricOpen.agree; agreeWrap.hidden = !rubricOpen.agree; agreeHead.setAttribute('aria-expanded', String(rubricOpen.agree)); } },
-          el('span', { class: 'rub-group__caret' }, '▸'), `All three agree`, el('span', {}, String(agree.length)));
-        body.replaceChildren(
-          split.length ? el('div', { class: 'rub-group rub-group--static' }, 'Verdicts differ', el('span', {}, String(split.length))) : null,
-          ...split.map(row),
-          agree.length ? agreeHead : null,
-          agree.length ? agreeWrap : null);
-      } else {
-        body.replaceChildren(...shown.map(row));
-      }
+      const get = SORTERS[rubricSort.key];
+      const shown = base.filter(fn).sort((x, y) => { const a = get(x), b = get(y); return (a < b ? -1 : a > b ? 1 : x.n - y.n) * (a === b ? 1 : rubricSort.dir); });
+      count.textContent = `${shown.length} of ${t.criteria.length}`;
+      sortHead();
+      body.replaceChildren(...(shown.length ? shown.map(row) : [el('div', { class: 'rub-empty' }, 'No criteria match.')]));
     };
 
     const search = el('input', { class: 'input rli-search', type: 'search', placeholder: 'Search criteria…', oninput: (e) => { rubricFilter.q = e.target.value; render(); } });
@@ -967,8 +923,8 @@ export function createRli({ bucket, taskId, onCrit, onSpec, onOpenDoc, onCompare
 
     return el('div', { class: 'rli rli-rubric rub' },
       mix ? mixBar(mix, weights) : null,
-      el('div', { class: 'rub-tools' }, chips, el('span', { class: 'spacer' }), search, catSel),
-      el('div', { class: 'rub-table' }, head(), body),
+      el('div', { class: 'rub-tools' }, chips, el('span', { class: 'spacer' }), search, catSel, count),
+      el('div', { class: 'rub-table' }, headRow, body),
       el('p', { class: 'rub-foot' }, 'Penalty criteria (negative weight): "Present" means the defect is there and its weight is deducted — that is what the record\'s "passed: true" means on a penalty, and it matches the printed scores.'),
     );
   }
@@ -1097,8 +1053,6 @@ export function createRli({ bucket, taskId, onCrit, onSpec, onOpenDoc, onCompare
   function flashCrit(n, side = null) {
     const row = document.getElementById(`crit-C${n}`);
     if (!row) return false;
-    const group = row.closest('.rub-group__rows');
-    if (group?.hidden) { group.hidden = false; rubricOpen.agree = true; group.previousElementSibling?.setAttribute('aria-expanded', 'true'); }
     row.querySelector('.rub-detail')?.removeAttribute('hidden');
     row.classList.add('is-open', 'flash');
     if (side) {
@@ -1130,5 +1084,5 @@ export function createRli({ bucket, taskId, onCrit, onSpec, onOpenDoc, onCompare
   }
 
 
-  return { load, summaryBar, openArtifact, flashPref, buildBrief, buildDeliverables, buildRubric, buildPreference, checksPanel, flashCrit, setDelivMode: (m) => { delivMode = m; }, resetFilter: () => { rubricFilter.q = ''; rubricFilter.cat = ''; rubricFilter.only = ''; } };
+  return { load, summaryBar, openArtifact, flashPref, buildBrief, buildDeliverables, buildRubric, buildPreference, checksPanel, flashCrit, setDelivMode: (m) => { delivMode = m; }, resetFilter: () => { rubricFilter.q = ''; rubricFilter.cat = ''; rubricFilter.only = ''; rubricSort.key = 'n'; rubricSort.dir = 1; } };
 }

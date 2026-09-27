@@ -4147,7 +4147,7 @@ button.rev-where:hover { color: var(--accent); background: var(--accent-bg); }
 .art-slot__name span { font-size: 12px; color: var(--text-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--mono); }
 .art-slot__marks { display: flex; gap: 3px; }
 .art-slot__marks i { width: 18px; text-align: center; font-style: normal; font-size: 13px; font-weight: 700; }
-.art-slot__marks .is-ok { color: var(--ok); }
+.art-slot__marks .is-ok { color: var(--text-3); }
 .art-slot__marks .is-flag { color: var(--warn); }
 .art-slot__marks .is-missing { color: var(--fail); }
 .art-main { min-width: 0; display: grid; gap: 12px; }
@@ -4200,3 +4200,33 @@ button.rev-where:hover { color: var(--accent); background: var(--accent-bg); }
 
 /* Keep the floating Acey button off the last row of content. */
 body:has(.acey-fab:not([hidden])) main { padding-bottom: 96px; }
+
+/* ---------- RLI Rubric v2 (0927): quiet, flat, sortable ---------- */
+.rub-table { --rub-cols: 60px minmax(0, 1fr) 72px repeat(3, 72px); }
+.rub-head { padding: 0 12px; }
+.rub-sort { display: inline-flex; align-items: center; gap: 5px; padding: 10px 0; border: 0; background: none; font: inherit; font-size: 12px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--text-3); cursor: pointer; text-align: left; }
+.rub-sort:hover, .rub-sort.is-on { color: var(--text); }
+.rub-sort i { font-style: normal; font-size: 12px; min-width: 10px; }
+.rub-sort.is-num { justify-content: flex-end; }
+.rub-sort.is-side { justify-content: center; }
+.rub-count { font-size: 13px; color: var(--text-3); white-space: nowrap; }
+.rub-meta { font-size: 13px; color: var(--text-3); gap: 8px; }
+.rub-pen { font-size: 12px; font-weight: 600; color: var(--fail); background: none; padding: 0; margin: 0; }
+.rub-w { display: block; text-align: right; font-family: var(--mono); font-size: 14px; font-variant-numeric: tabular-nums; color: var(--text-2); }
+.rub-w.is-neg { color: var(--fail); }
+.rub-v.is-good b { color: var(--text-3); }
+.rub-v.is-good span { color: var(--text-3); }
+.rub-v.is-bad b { color: var(--fail); }
+.rub-v.is-bad span { color: var(--fail); }
+.rub-just, .rub-just.is-bad { border-top: 1px solid var(--border); }
+.rub-just__verdict { color: var(--text-3); }
+.rub-just__verdict.is-bad { color: var(--fail); }
+.rub-chip.is-on { background: var(--surface-active); border-color: var(--border-strong); color: var(--text); }
+.rub-chip.is-on span { color: var(--text-2); }
+.rub-mix__status { color: var(--text-2); }
+.rub-mix__status.is-fail { color: var(--fail); }
+@container (max-width: 900px) {
+  .rub-table { --rub-cols: 40px minmax(0, 1fr) 44px repeat(3, 50px); }
+}
+/* Deliverables: one view — the header is just the deliverable's name. */
+.rli-deliv .art-head__t span { font-size: 13px; }
