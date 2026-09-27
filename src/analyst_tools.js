@@ -35,7 +35,7 @@ const SQL_DIR = path.join(config.projectRoot, 'sql', 'redash');
 // describe which source to prefer rather than what any one file does. Kept short
 // on purpose: this rides in the system prompt on every analyst turn.
 export const SCHEMA_BRIEF = `
-UPSTREAM SCHEMA (Snowflake via Redash, data source ${config.redash.dataSourceId}). ACC project id
+UPSTREAM SCHEMA (Snowflake via Redash, data source ${config.redash.dataSourceId}). RLI project id
 '${config.redash.projectId}' — filter EVERY query by it.
 
   VIEW.GEN_AI_ISR          one row per attempt, already denormalised. Prefer this for anything
@@ -128,7 +128,7 @@ export const ANALYST_TOOL_DEFS = [
       name: 'run_sql',
       description:
         'Run read-only SQL (SELECT / WITH only) against the upstream warehouse and get rows back. '
-        + 'Use when no curated query answers the question. Filter by the ACC project id, put a LIMIT '
+        + 'Use when no curated query answers the question. Filter by the RLI project id, put a LIMIT '
         + 'on exploratory queries, and prefer VIEW.GEN_AI_ISR for anything about people, quality or '
         + 'cost. The SQL you run is shown to the operator alongside your answer, so write it to be '
         + 'read. If it errors, fix and retry rather than guessing at the number.',

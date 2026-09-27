@@ -1047,7 +1047,7 @@ function openTaskForTour() {
 }
 
 const BOARD_TOUR = [
-  { title: 'Welcome to ACC Audit Studio 👋', body: 'A hands-on tour — you\'ll actually try things on a private sandbox task (marked "sandbox"). Nothing you do here is real; it\'s deleted when the tour ends. Use Next / Back or ← →, Esc to leave.' },
+  { title: 'Welcome to the RLI Operations Hub 👋', body: 'A hands-on tour — you\'ll actually try things on a private sandbox task (marked "sandbox"). Nothing you do here is real; it\'s deleted when the tour ends. Use Next / Back or ← →, Esc to leave.' },
   { selector: '.toolbar', title: 'Find & filter tasks', body: 'Search by task ID or problem text, and filter by severity — Fail, Non-fail, or No issues. Invaluable when a delivery drops hundreds of tasks at once.' },
   { selector: '.lanes', title: 'Your workflow board', body: 'Every task sits in a lane that reflects its state: Open → In review → (Needs 2nd opinion) → Resolved. It\'s the shared source of truth for who\'s doing what.' },
   { selector: '#tour-dummy-card', pin: 'top', title: 'Try it: drag & drop 🖱️', body: 'The drag IS the action — no forms. Grab your highlighted "sandbox" card (in the Soft column) and drag it into another lane: drop in Resolved to pick a decision, "Needs 2nd opinion" to flag it, or "In review" to claim it. Go ahead — I\'ll wait.',

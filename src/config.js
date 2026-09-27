@@ -64,8 +64,12 @@ export const config = {
   // live here instead of in the page — the copy, the target line on the delivery
   // chart and the readiness maths all read the same two numbers.
   overview: {
-    // RLI delivers on Mondays. Volume is TBD: 50 is the working estimate for
-    // the first delivery (Pavit, 0926) until the ramp plan lands.
+    // RLI delivers on Mondays. Volume is TBD: targets are per delivery date so
+    // the ramp plan can drop straight in (OVERVIEW_TARGETS='{"2026-10-12":80}').
+    // Working estimate (Pavit, 0926): 50 by the Mon 2026-10-05 delivery; the
+    // 2026-09-28 delivery has no target. After the last dated target the
+    // Overview falls back to targetVolume, flagged as assumed.
+    targets: (() => { try { return JSON.parse(process.env.OVERVIEW_TARGETS || 'null') || { '2026-10-05': 50 }; } catch { return { '2026-10-05': 50 }; } })(),
     targetVolume: Number(process.env.OVERVIEW_TARGET_VOLUME || 50),
     // 0 = Sunday … 6 = Saturday. Cadence and greeting are anchored to
     // America/Los_Angeles in src/overview.js, so an evening packaging run isn't

@@ -352,7 +352,7 @@ export function renderAppHeader({ active, user, extras = [] } = {}) {
   const lockup = el('div', { class: 'lockup' });
   lockup.innerHTML = SCALE_LOCKUP
     + '<span class="vsep"></span>'
-    + '<span class="lockup__name">Audit Studio</span>';
+    + '<span class="lockup__name">RLI Operations Hub</span>';
 
   const nav = el('nav', { class: 'nav' },
     ...NAV_ITEMS

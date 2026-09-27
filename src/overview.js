@@ -81,6 +81,27 @@ const addDays = (isoDate, n) => {
   d.setUTCDate(d.getUTCDate() + n);
   return d.toISOString().slice(0, 10);
 };
+const daysBetween = (a, b) => Math.round((Date.parse(`${b}T00:00:00Z`) - Date.parse(`${a}T00:00:00Z`)) / 86400000);
+
+// The target the Overview tracks: the first DATED target on or after the next
+// delivery (so a delivery with no target isn't judged against someone else's
+// number); past the last dated target, the flat default, marked assumed.
+export function nextTarget(fromDate) {
+  const dated = Object.entries(config.overview.targets || {})
+    .filter(([d, n]) => /^\d{4}-\d{2}-\d{2}$/.test(d) && Number(n) > 0)
+    .sort(([a], [b]) => a.localeCompare(b));
+  const hit = dated.find(([d]) => d >= fromDate);
+  if (hit) return { date: hit[0], tasks: Number(hit[1]), assumed: false };
+  return { date: fromDate, tasks: config.overview.targetVolume, assumed: true };
+}
+// Target for a delivery that already happened, keyed by its nominal delivery
+// day (close-out dates trail packaging by up to a day). null = none was set.
+function targetOn(closeOutDate) {
+  const wd = new Date(`${closeOutDate}T12:00:00Z`).getUTCDay();
+  const nominal = addDays(closeOutDate, -((wd - DELIVERY_WEEKDAY + 7) % 7));
+  const n = config.overview.targets?.[nominal];
+  return n ? Number(n) : null;
+}
 
 // Where we are in the weekly rhythm. The phase drives the greeting; the LLM is
 // told which phase it is rather than being asked to work out the date itself,
@@ -232,6 +253,7 @@ export async function buildBrief({ fresh = false, days = 30 } = {}) {
   const upstream = levels.filter((l) => !['10', '12'].includes(l.level))
     .reduce((a, l) => a + l.pending, 0);
 
+  const tgt = nextTarget(calendar.nextDeliveryDate);
   const history = (deliveries.rows || []).map((r) => ({
     date: String(r.delivered_on).slice(0, 10),
     dayName: r.day_name,
@@ -250,12 +272,16 @@ export async function buildBrief({ fresh = false, days = 30 } = {}) {
     board,
     redash: { enabled: true },
     errors: pickErrors({ deliveries, queue, economics, throughput }),
-    target: config.overview.targetVolume,
+    target: tgt.tasks,
+    targetDate: tgt.date,
+    targetAssumed: tgt.assumed,
+    targetDaysUntil: daysBetween(now.date, tgt.date),
     deliveries: {
       history,
       last,
       trailingAvg,
-      metTargetLast: last ? last.tasks >= config.overview.targetVolume : null,
+      lastTarget: last ? targetOn(last.date) : null,
+      metTargetLast: last && targetOn(last.date) ? last.tasks >= targetOn(last.date) : null,
     },
     pipeline: {
       levels,
@@ -265,12 +291,12 @@ export async function buildBrief({ fresh = false, days = 30 } = {}) {
       deliverable,
       feeder,
       upstream,
-      progressPct: Math.round((deliverable / config.overview.targetVolume) * 100),
-      gapToTarget: Math.max(0, config.overview.targetVolume - deliverable),
+      progressPct: Math.round((deliverable / tgt.tasks) * 100),
+      gapToTarget: Math.max(0, tgt.tasks - deliverable),
       // Whether the target is even reachable from what exists: everything still
       // in flight, deliverable or not. Short here is a supply problem; short on
       // `deliverable` alone is a movement problem. They need different actions.
-      supplyShortfall: Math.max(0, config.overview.targetVolume - totalPending),
+      supplyShortfall: Math.max(0, tgt.tasks - totalPending),
       stale: {
         count: levels.reduce((a, l) => a + l.stale, 0),
         byLevel: levels.filter((l) => l.stale > 0).map((l) => ({ level: l.level, stale: l.stale, oldestDays: l.oldestDays })),
@@ -612,7 +638,7 @@ function cacheKey(brief) {
   ]);
 }
 
-const SYSTEM = `You are Acey, the delivery lead's second pair of eyes on an ACC annotation pipeline.
+const SYSTEM = `You are Acey, the delivery lead's second pair of eyes on the RLI annotation pipeline.
 
 You write the short standing summary at the top of the Overview page, read several times a day
 by the person accountable for the weekly delivery. Your job is the READ: what the numbers mean
@@ -666,14 +692,18 @@ function buildPrompt(brief) {
   lines.push(`PHASE: ${c.phase} — ${c.tone}`);
   lines.push(`HEADLINE TO OPEN WITH (verbatim): "${c.headline}"`);
   lines.push('');
-  lines.push(`DELIVERY CADENCE: every ${c.deliveryWeekday}, target ${brief.target} tasks.`);
+  lines.push(`DELIVERY CADENCE: every ${c.deliveryWeekday}. Volume is still TBD (a ramp plan is coming).`);
+  lines.push(brief.targetDate === c.nextDeliveryDate
+    ? `TARGET for this delivery: ${brief.target} tasks${brief.targetAssumed ? ' (assumed — no dated target set)' : ''}.`
+    : `The ${c.nextDeliveryDate} delivery has NO target — do not call it short or on track. The tracked target is ${brief.target} tasks for the ${brief.targetDate} delivery, ${brief.targetDaysUntil} day(s) away; every progress number below is against that.`);
   lines.push(c.isDeliveryDay
     ? 'Today IS delivery day.'
     : `Next delivery: ${c.nextDeliveryDate}, ${c.daysUntil} day(s) away.`);
 
   if (brief.deliveries?.last) {
     const l = brief.deliveries.last;
-    lines.push(`Last delivery: ${l.date} (${l.dayName}), ${l.tasks} tasks — ${l.tasks >= brief.target ? 'hit' : 'under'} the ${brief.target} target.`);
+    const lt = brief.deliveries.lastTarget;
+    lines.push(`Last delivery: ${l.date} (${l.dayName}), ${l.tasks} tasks — ${lt ? `${l.tasks >= lt ? 'hit' : 'under'} its ${lt} target` : 'no target was set for it'}.`);
     // Dates here are the pipeline CLOSE-OUT, which trails the packaging run.
     // Without this the model has to guess why a delivery-day cadence shows next-day
     // dates, and a guess that happens to be right is still a guess.

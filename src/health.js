@@ -66,7 +66,8 @@ function checkDelivery(brief) {
   // Only meaningful close to the delivery. Three days out, being short is the
   // normal state of the world and firing on it every week trains people to
   // ignore the list.
-  if (brief.calendar.daysUntil <= 2 && shortPct > THRESHOLDS.deliveryGapPct) {
+  const daysLeft = brief.targetDaysUntil ?? brief.calendar.daysUntil;
+  if (daysLeft <= 2 && shortPct > THRESHOLDS.deliveryGapPct) {
     out.push(signal({
       id: 'delivery-gap',
       domain: 'throughput',
@@ -74,7 +75,7 @@ function checkDelivery(brief) {
       // Escalates because closing a gap this late is a scope call, not a
       // throughput chore — someone has to decide what ships.
       escalate: shortPct > 50,
-      title: `${int(p.gapToTarget)} short of the ${int(target)} target with ${brief.calendar.daysUntil} day(s) to go`,
+      title: `${int(p.gapToTarget)} short of the ${int(target)} target with ${daysLeft} day(s) to go`,
       detail: `${int(p.deliverable)} deliverable at L12 (${p.progressPct}% of target). `
         + `${int(p.feeder)} at L10 and ${int(p.upstream)} further back.`,
       metric: { value: p.gapToTarget, threshold: Math.round((target * THRESHOLDS.deliveryGapPct) / 100), unit: 'tasks' },
@@ -171,7 +172,7 @@ function checkEvalGap(brief, board) {
   const gap = Math.max(0, atL10 - onBoard);
 
   const short = (p.gapToTarget || 0) > 0;
-  const crunch = brief.calendar.daysUntil <= THRESHOLDS.evalCrunchDays && short && gap > 0;
+  const crunch = (brief.targetDaysUntil ?? brief.calendar.daysUntil) <= THRESHOLDS.evalCrunchDays && short && gap > 0;
   if (gap < THRESHOLDS.evalGap && !crunch) return [];
 
   return [signal({
@@ -179,10 +180,10 @@ function checkEvalGap(brief, board) {
     domain: 'evals',
     severity: crunch ? 'p0' : 'p1',
     title: `Run evals on ${int(gap)} L10 task${gap === 1 ? '' : 's'} not yet on the board`,
-    detail: `${int(atL10)} tasks sit at L10 upstream and ${int(onBoard)} of them are on the Audit Studio `
+    detail: `${int(atL10)} tasks sit at L10 upstream and ${int(onBoard)} of them are on the Hub `
       + `board. The remaining ${int(gap)} cannot reach L12 without an eval pass.`
       + (crunch
-        ? ` Delivery is ${brief.calendar.daysUntil} day(s) out and the target is ${int(p.gapToTarget)} short — each of these converts directly into deliverable volume now.`
+        ? ` Delivery is ${brief.targetDaysUntil ?? brief.calendar.daysUntil} day(s) out and the target is ${int(p.gapToTarget)} short — each of these converts directly into deliverable volume now.`
         : ''),
     metric: { value: gap, threshold: THRESHOLDS.evalGap, unit: 'tasks' },
     link: '/l12.html#rd-split',
@@ -319,8 +320,8 @@ export async function projectHealth({ fresh = false, days = 30 } = {}) {
     context: {
       deliverable: brief.pipeline?.deliverable ?? null,
       target: brief.target,
-      daysUntilDelivery: brief.calendar.daysUntil,
-      nextDelivery: brief.calendar.nextDeliveryDate,
+      daysUntilDelivery: brief.targetDaysUntil ?? brief.calendar.daysUntil,
+      nextDelivery: brief.targetDate || brief.calendar.nextDeliveryDate,
       totalPending: brief.pipeline?.totalPending ?? null,
       blocked: brief.pipeline?.blocked?.pending ?? null,
       contributors: quality?.totals?.contributors ?? null,

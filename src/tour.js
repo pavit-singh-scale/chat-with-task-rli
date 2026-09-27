@@ -60,7 +60,7 @@ function rankJson() {
       difficulty: 'easy',
       language: 'Python',
       user_intent: {
-        user_persona: 'A tour-taker exploring Audit Studio.',
+        user_persona: 'A tour-taker exploring the RLI Operations Hub.',
         milestones: [
           { milestone_id: 'm1', title: 'Build the CLI', prompt: 'Build a Python CLI that converts a CSV of sales into a monthly summary report.' },
           { milestone_id: 'm2', title: 'Add output format', prompt: 'Add a --format flag supporting json and table output.' },

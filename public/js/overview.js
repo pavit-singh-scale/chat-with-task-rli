@@ -78,7 +78,9 @@ function renderClock(b) {
   // Reporting the sum as "within reach" made a 289-task shortfall read as 43.
   mount($('ov-countdown'),
     chip('', c.isDeliveryDay ? 'delivery is today' : `days to ${c.deliveryWeekday}`, c.isDeliveryDay ? '—' : String(c.daysUntil)),
-    p ? chip('', `deliverable of ${int(b.target)}`, int(p.deliverable)) : null,
+    // The target can belong to a LATER delivery than the next one (RLI: none
+    // for 09-28, 50 for 10-05) — say which, so nobody reads it as due Monday.
+    p ? chip('', `deliverable of ${int(b.target)}${b.targetDate && b.targetDate !== c.nextDeliveryDate ? ` for ${shortDate(b.targetDate)}` : ''}${b.targetAssumed ? ' (assumed)' : ''}`, int(p.deliverable)) : null,
     p ? chip(p.gapToTarget > 0 ? 'ov-stat--warn' : 'ov-stat--ok',
       p.gapToTarget > 0 ? 'still to reach L12' : `target ${b.target}`,
       p.gapToTarget > 0 ? int(p.gapToTarget) : 'met') : null);
@@ -208,7 +210,7 @@ function renderCharts(b) {
         + `${p.blocked.byLevel.map((x) => `L${x.level}`).join(' / ')} and are not counted below.`
       : '';
     $('ov-funnel-sub').textContent =
-      `${int(p.deliverable)} of ${int(b.target)} are deliverable now (L12) — ${p.progressPct}%. `
+      `${int(p.deliverable)} of the ${int(b.target)}${b.targetDate ? ` targeted for ${shortDate(b.targetDate)}` : ''} are deliverable now (L12) — ${p.progressPct}%. `
       + `${int(p.feeder)} sit at L10 and ${int(p.upstream)} further back; running totals below assume every one of them reaches L12 in time`
       + `${p.supplyShortfall > 0 ? `, which would still leave ${int(p.supplyShortfall)} short` : ''}.${blocked}`;
     mountChart($('chart-funnel'), readinessFunnel({ stages: p.stages, target: b.target }));
@@ -547,3 +549,8 @@ function renderFoot(b) {
 
 // Acey is available from every page, not just inside a task.
 mountAcey({ page: 'overview' });
+
+// "2026-10-05" → "Mon Oct 5" (dates are PT calendar days; noon UTC avoids TZ drift).
+function shortDate(iso) {
+  return new Date(`${iso}T12:00:00Z`).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', timeZone: 'UTC' }).replace(',', '');
+}

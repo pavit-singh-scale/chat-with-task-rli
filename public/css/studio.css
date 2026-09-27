@@ -1,5 +1,5 @@
 /* ─────────────────────────────────────────────────────────────────────────
-   Chat with Task — dark glass, designed quiet.
+   RLI Operations Hub — dark glass, designed quiet.
    System: 8px spacing grid · 3 text sizes (12/13.5/15) · one accent (blue),
    semantic color only where it carries meaning (severity, verdict, roles).
    ───────────────────────────────────────────────────────────────────────── */
@@ -2880,7 +2880,7 @@ mark.cb-hl.flash { outline: none; animation: cwt-flash 2.4s ease-out; border-rad
 .ov-blk-old td { color: var(--text); }
 
 /* ---------- Team page ----------
-   One job: the work on ACC, and who owns it. One card per item, grouped under
+   One job: the work on RLI, and who owns it. One card per item, grouped under
    its owner. The counts across the top are the filter — they used to be tiles
    that filtered nothing, next to a signals list and an escalated list that
    re-rendered the same items twice more. */

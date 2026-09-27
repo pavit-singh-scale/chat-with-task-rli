@@ -939,7 +939,7 @@ function cssEscape(s) {
 function scoreClass(score) {
   const n = Number(score);
   if (!Number.isFinite(n)) return '';
-  if (n >= 3) return 'good';   // ACC dimensions are scored 1–3 (3 = best)
+  if (n >= 3) return 'good';   // ACC-format dimensions are scored 1–3 (3 = best)
   if (n === 2) return 'mid';
   return 'bad';
 }

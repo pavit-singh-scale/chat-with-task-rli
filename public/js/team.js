@@ -1,7 +1,7 @@
 import { api, el, mount, renderAppHeader, avatar } from './common.js';
 import { mountAcey } from './acey.js';
 
-// The Team page answers ONE question: what needs doing on ACC, and who owns it.
+// The Team page answers ONE question: what needs doing on RLI, and who owns it.
 //
 // It used to answer three, badly. The same eight items appeared as a health
 // signal (evidence, no actions), again under "Escalated", and again inside a
@@ -447,7 +447,7 @@ function exportItems() {
   if (!items.length) return toast('Nothing to export in this view.');
   const day = new Date().toISOString().slice(0, 10);
   const text = [
-    `ACC action items — ${day}${view === 'all' ? '' : ` (${view})`}`,
+    `RLI action items — ${day}${view === 'all' ? '' : ` (${view})`}`,
     ...items.map((t) => `• [${t.severity.toUpperCase()}] ${firstName(t.owner)} — ${t.title}`
       + (t.status === 'done' || t.status === 'resolved' ? ' (closed)' : '')),
   ].join('\n');
