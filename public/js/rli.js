@@ -227,34 +227,156 @@ export function createRli({ bucket, taskId, onCrit, onSpec, onOpenDoc, onCompare
     return holder;
   }
 
-  let delivMode = 'compare';
+  // ---------- Deliverables ----------
+  // Two ways in: BY ARTIFACT (one deliverable at a time, RD | AD1 | AD2 at
+  // equal size — the comparison graders actually make) and BY SIDE (each
+  // side's whole delivery in a column). Inputs live here too, as a third view.
+  let delivMode = 'artifact';
+  const delivState = { slot: 0, layout: 'sbs', side: 'golden' };
+  const KIND_NAME = { model3d: '3D model', cad: 'CAD / scene file', image: 'Image', video: 'Video', audio: 'Audio', pdf: 'PDF', design: 'Design file', sheet: 'Spreadsheet', doc: 'Document', text: 'Text', archive: 'Archive', other: 'File' };
+  const KIND_RANK = ['model3d', 'cad', 'image', 'video', 'audio', 'pdf', 'design', 'sheet', 'doc', 'text', 'archive', 'other'];
+  const normName = (n) => n.toLowerCase().replace(/\.[^.]+$/, '').replace(/[\s_\-.]+/g, '').replace(/v?\d{3}$|final$/g, '');
+  // Model-run notes aren't a deliverable the golden could have; they'd read as "RD missing".
+  const isRunNote = (f) => /^generation[_ -]?notes/i.test(f.name);
+
+  // What an image IS, from its name — so "Render01.jpg" pairs with
+  // "render_01_front_upright.jpg" and never with a UV sheet or a wireframe.
+  const IMG_CATS = [
+    ['UV layout', /\buv|uv[_ -]?layout|unwrap/i],
+    ['Wireframe', /wire/i],
+    ['Materials', /material|texture|swatch|palette|moodboard/i],
+    ['Drawing', /plan|section|elevation[_ -]?drawing|drawing|sheet/i],
+    ['Render', /render|view|shot|persp|front|rear|side|aerial|street|exterior|interior|hero|beauty|turntable|cam/i],
+  ];
+  const imageCat = (name) => (IMG_CATS.find(([, re]) => re.test(name)) || ['Image'])[0];
+  const firstNum = (name) => { const m = name.match(/(\d+)/); return m ? Number(m[1]) : Infinity; };
+
+  // Match one deliverable across the three sides. 3D/CAD pair by format
+  // (BUILDING.3ds ↔ BUILDING.3ds, .fbx ↔ .fbx); images by what they are, then
+  // their number (Render01 ↔ render_01_front…); a name match is trusted only
+  // when the golden is part of it, so two ADs sharing a name can't shift RD.
+  function artifactSlots(t) {
+    const sides = ['golden', 'ad1', 'ad2'];
+    const groups = new Map();
+    for (const s of sides) {
+      for (const f of t.files[s] || []) {
+        if (isRunNote(f)) continue;
+        const ext = (f.name.split('.').pop() || '').toLowerCase();
+        const cat = ['model3d', 'cad'].includes(f.kind) ? `${KIND_NAME[f.kind]} · ${ext.toUpperCase()}` : f.kind === 'image' ? imageCat(f.name) : KIND_NAME[f.kind];
+        const key = `${f.kind}:${cat}`;
+        if (!groups.has(key)) groups.set(key, { kind: f.kind, cat, files: { golden: [], ad1: [], ad2: [] } });
+        groups.get(key).files[s].push(f);
+      }
+    }
+    const CAT_RANK = ['Render', 'Drawing', 'Materials', 'Wireframe', 'UV layout', 'Image'];
+    const slots = [];
+    const ordered = [...groups.values()].sort((x, y) => KIND_RANK.indexOf(x.kind) - KIND_RANK.indexOf(y.kind)
+      || CAT_RANK.indexOf(x.cat) - CAT_RANK.indexOf(y.cat) || x.cat.localeCompare(y.cat));
+    for (const g of ordered) {
+      const byNum = (x, y) => firstNum(x.name) - firstNum(y.name) || x.rel.localeCompare(y.rel, undefined, { numeric: true });
+      const pools = Object.fromEntries(sides.map((s) => [s, [...g.files[s]].sort(byNum)]));
+      const rows = [];
+      for (const f of [...pools.golden]) {
+        const hit = { golden: f };
+        for (const s of ['ad1', 'ad2']) { const m = pools[s].find((x) => normName(x.name) === normName(f.name)); if (m) hit[s] = m; }
+        if (Object.keys(hit).length < 2) continue;
+        rows.push(hit);
+        for (const s of sides) if (hit[s]) pools[s] = pools[s].filter((x) => x !== hit[s]);
+      }
+      const n = Math.max(...sides.map((s) => pools[s].length));
+      for (let i = 0; i < n; i++) rows.push(Object.fromEntries(sides.map((s) => [s, pools[s][i]]).filter(([, f]) => f)));
+      rows.forEach((r, i) => {
+        const any = r.golden || r.ad1 || r.ad2;
+        slots.push({ id: `${g.cat.toLowerCase().replace(/[^a-z0-9]+/g, '-')}-${i + 1}`, label: rows.length > 1 ? `${g.cat} ${i + 1}` : g.cat, kind: g.kind, name: any.name, files: r });
+      });
+    }
+    return slots;
+  }
+  const fileFlags = (f) => [
+    ...(f.media?.flags || []),
+    f.media?.video && f.media.video.height && f.media.video.height < 720 ? `low resolution (${f.media.video.width}×${f.media.video.height})` : null,
+  ].filter(Boolean);
+  const slotMark = (f) => (!f ? { g: '–', cls: 'is-missing', t: 'not delivered' } : fileFlags(f).length ? { g: '!', cls: 'is-flag', t: fileFlags(f).join('; ') } : { g: '✓', cls: 'is-ok', t: 'delivered' });
+
+  function artifactView(t) {
+    const slots = artifactSlots(t);
+    if (!slots.length) return el('div', { class: 'callout warn' }, 'No deliverables in this record.');
+    delivState.slot = Math.min(delivState.slot, slots.length - 1);
+    const rail = el('nav', { class: 'art-rail', 'aria-label': 'Deliverables' });
+    const main = el('div', { class: 'art-main' });
+    const sides = ['golden', 'ad1', 'ad2'];
+    const pane = (s, f, big = false) => el('div', { class: `art-pane${f ? '' : ' is-missing'}${big ? ' is-big' : ''}` },
+      el('div', { class: 'art-pane__head' }, el('b', {}, SIDE_LABEL[s]), el('span', {}, modelLine(t, s))),
+      f ? el('div', { class: 'art-pane__stage', onclick: (e) => { if (['image'].includes(f.kind) && e.target.tagName === 'IMG') openViewer(t, f, t.files[s]); } }, mediaNode(f, { compact: !big }))
+        : el('div', { class: 'art-pane__none' }, el('b', {}, 'Not delivered'), el('span', {}, `${SIDE_LABEL[s]} has no matching ${KIND_NAME[slots[delivState.slot].kind].toLowerCase()}`)),
+      f ? el('div', { class: 'art-pane__meta' },
+        el('button', { type: 'button', class: 'art-pane__name', title: 'Open in the viewer', onclick: () => openViewer(t, f, t.files[s]) }, f.rel),
+        el('span', {}, fmtSize(f.size)),
+        f.media ? mediaLine(f) : null) : null,
+      f && fileFlags(f).length ? el('div', { class: 'art-pane__flags' }, fileFlags(f).map((x) => el('span', {}, x))) : null);
+
+    const render = () => {
+      const slot = slots[delivState.slot];
+      rail.replaceChildren(el('div', { class: 'art-rail__lbl' }, 'Deliverables', el('span', {}, 'RD · AD1 · AD2')),
+        ...slots.map((sl, i) => el('button', { type: 'button', class: `art-slot${i === delivState.slot ? ' is-on' : ''}`, 'data-slot': sl.id,
+          onclick: () => { delivState.slot = i; render(); } },
+          el('span', { class: 'art-slot__name' }, el('b', {}, sl.label), el('span', {}, sl.name)),
+          el('span', { class: 'art-slot__marks' }, sides.map((s) => { const m = slotMark(sl.files[s]); return el('i', { class: m.cls, title: `${SIDE_LABEL[s]}: ${m.t}` }, m.g); })))));
+      requestAnimationFrame(() => rail.querySelector('.art-slot.is-on')?.scrollIntoView({ block: 'nearest', inline: 'nearest' }));
+      const layoutSeg = el('div', { class: 'seg rli-seg' },
+        ...[['sbs', 'Side by side'], ['one', 'One at a time']].map(([k, l]) => el('button', { type: 'button', 'aria-pressed': String(delivState.layout === k), onclick: () => { delivState.layout = k; render(); } }, l)));
+      const head = el('div', { class: 'art-head' },
+        el('div', { class: 'art-head__t' }, el('h3', {}, slot.label), el('span', {}, `${delivState.slot + 1} of ${slots.length} · ← → to step${delivState.layout === 'one' ? ' · 1 2 3 to pick a side' : ''}`)),
+        el('span', { class: 'spacer' }), layoutSeg);
+      if (delivState.layout === 'sbs') {
+        main.replaceChildren(head, el('div', { class: 'art-panes' }, sides.map((s) => pane(s, slot.files[s]))));
+      } else {
+        const tabs = el('div', { class: 'seg rli-seg art-sidetabs' }, sides.map((s, i) => el('button', { type: 'button', 'aria-pressed': String(delivState.side === s),
+          onclick: () => { delivState.side = s; render(); } }, `${i + 1} · ${SIDE_LABEL[s]}`, slotMark(slot.files[s]).cls === 'is-missing' ? ' (none)' : '')));
+        main.replaceChildren(head, tabs, pane(delivState.side, slot.files[delivState.side], true));
+      }
+    };
+    render();
+    const root = el('div', { class: 'art' }, rail, main);
+    const onKeys = (e) => {
+      if (!root.isConnected) return document.removeEventListener('keydown', onKeys);
+      if (lb || e.target.closest?.('input, textarea, select, [contenteditable]') || e.metaKey || e.ctrlKey || e.altKey) return;
+      if (e.key === 'ArrowRight' || e.key === 'ArrowDown') { delivState.slot = Math.min(slots.length - 1, delivState.slot + 1); render(); e.preventDefault(); }
+      else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') { delivState.slot = Math.max(0, delivState.slot - 1); render(); e.preventDefault(); }
+      else if (['1', '2', '3'].includes(e.key)) { delivState.side = sides[Number(e.key) - 1]; delivState.layout = 'one'; render(); }
+    };
+    document.addEventListener('keydown', onKeys);
+    root.selectSlot = (id) => { const i = slots.findIndex((x) => x.id === id); if (i >= 0) { delivState.slot = i; render(); } return i >= 0; };
+    root.slotId = () => slots[delivState.slot]?.id;
+    return root;
+  }
+
   async function buildDeliverables() {
     const t = await load();
     const body = el('div', { class: 'rli-deliv__body' });
     const seg = el('div', { class: 'seg rli-seg', role: 'group' });
     const modes = [
-      ['compare', 'RD · AD1 · AD2'],
+      ['artifact', 'By artifact'],
+      ['compare', 'By side'],
       ['input', `Inputs (${t.files.input.length})`],
-      ['golden', 'RD'],
-      ['ad1', 'AD1'],
-      ['ad2', 'AD2'],
     ];
+    if (!modes.some(([m]) => m === delivMode)) delivMode = 'artifact';
     const render = () => {
       for (const b of seg.children) b.setAttribute('aria-pressed', String(b.dataset.mode === delivMode));
-      if (delivMode === 'compare') {
-        mount(body, el('div', { class: 'rli-cols' }, sideColumn(t, 'golden', { dense: true }), sideColumn(t, 'ad1', { dense: true }), sideColumn(t, 'ad2', { dense: true })));
-      } else {
-        mount(body, el('div', { class: 'rli-cols rli-cols--one' }, sideColumn(t, delivMode)));
-      }
+      if (delivMode === 'artifact') mount(body, artifactView(t));
+      else if (delivMode === 'compare') mount(body, el('div', { class: 'rli-cols' }, sideColumn(t, 'golden', { dense: true }), sideColumn(t, 'ad1', { dense: true }), sideColumn(t, 'ad2', { dense: true })));
+      else mount(body, el('div', { class: 'rli-cols rli-cols--one' }, sideColumn(t, delivMode)));
     };
     for (const [m, label] of modes) {
       seg.append(el('button', { type: 'button', 'data-mode': m, 'aria-pressed': 'false', onclick: () => { delivMode = m; render(); } }, label));
     }
     render();
-    return el('div', { class: 'rli rli-deliv' },
-      el('div', { class: 'rli-toolbar', title: 'Click any file to open it. ← → step through a side; C compares the same file across RD / AD1 / AD2.' }, seg),
+    const root = el('div', { class: 'rli rli-deliv' },
+      el('div', { class: 'rli-toolbar', title: 'Click any file to open it. In the viewer ← → step through a side; C compares the same file across RD / AD1 / AD2.' }, seg),
       body,
     );
+    root.selectSlot = (id) => { delivMode = 'artifact'; render(); return body.firstChild?.selectSlot?.(id); };
+    return root;
   }
 
   // ---------- lightbox viewer ----------
@@ -935,5 +1057,5 @@ export function createRli({ bucket, taskId, onCrit, onSpec, onOpenDoc, onCompare
   }
 
 
-  return { load, summaryBar, openArtifact, flashPref, buildBrief, buildDeliverables, buildRubric, buildPreference, checksPanel, flashCrit, resetFilter: () => { rubricFilter.q = ''; rubricFilter.cat = ''; rubricFilter.only = ''; } };
+  return { load, summaryBar, openArtifact, flashPref, buildBrief, buildDeliverables, buildRubric, buildPreference, checksPanel, flashCrit, setDelivMode: (m) => { delivMode = m; }, resetFilter: () => { rubricFilter.q = ''; rubricFilter.cat = ''; rubricFilter.only = ''; } };
 }

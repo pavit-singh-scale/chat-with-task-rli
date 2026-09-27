@@ -179,6 +179,7 @@ const rli = createRli({
   bucket, taskId,
   onCrit: (n, side) => { rli.resetFilter(); viewCache.delete('rli-rubric'); return showRliView('rubric').then(() => rli.flashCrit(n, side)); },
   onSpec: (key) => showQcSpec(key),
+  onCompare: () => { rli.setDelivMode('artifact'); viewCache.delete('rli-deliverables'); return showRliView('deliverables'); },
 });
 // Review + Remediation for RLI render from the structured eval (eval.json).
 let rliFixFocus = null;
