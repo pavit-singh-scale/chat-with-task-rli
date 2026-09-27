@@ -11,7 +11,7 @@ const KIND_ORDER = ['image', 'video', 'audio', 'pdf', 'model3d', 'cad', 'design'
 const KIND_LABEL = { image: 'Images', video: 'Video', audio: 'Audio', pdf: 'PDF', model3d: '3D models', cad: 'CAD / scene files', design: 'Design files', doc: 'Documents', sheet: 'Spreadsheets', text: 'Text & code', archive: 'Archives', other: 'Other' };
 const GATE = { golden: 97, ad1: 70, ad2: 50 };
 
-export function createRli({ bucket, taskId, onCrit, onSpec, onOpenDoc, onCompare }) {
+export function createRli({ bucket, taskId, onCrit, onSpec, onOpenDoc, onCompare, onSlot, onPair }) {
   let cache = null;
   const load = async (refresh = false) => {
     if (!cache || refresh) cache = api(`/task/${bucket}/${taskId}/rli`);
@@ -394,6 +394,7 @@ export function createRli({ bucket, taskId, onCrit, onSpec, onOpenDoc, onCompare
           el('span', { class: 'art-slot__name' }, el('b', {}, sl.label), el('span', {}, sl.name)),
           el('span', { class: 'art-slot__marks' }, sides.map((s) => { const m = slotMark(sl.files[s]); return el('i', { class: m.cls, title: `${SIDE_LABEL[s]}: ${m.t}` }, m.g); })))));
       requestAnimationFrame(() => rail.querySelector('.art-slot.is-on')?.scrollIntoView({ block: 'nearest', inline: 'nearest' }));
+      onSlot?.(slot.id);
       const layoutSeg = el('div', { class: 'seg rli-seg' },
         ...[['sbs', 'Side by side'], ['one', 'One at a time']].map(([k, l]) => el('button', { type: 'button', 'aria-pressed': String(delivState.layout === k), onclick: () => { delivState.layout = k; render(); } }, l)));
       const head = el('div', { class: 'art-head' },
@@ -1120,6 +1121,7 @@ export function createRli({ bucket, taskId, onCrit, onSpec, onOpenDoc, onCompare
   function flashPref(pair, dim) {
     const blk = document.getElementById(`pref-${pair}`);
     if (!blk) return false;
+    onPair?.(pair);
     const target = (dim && [...blk.querySelectorAll('.pref-row')].find((r) => r.dataset.dim === dim)) || blk;
     target.classList.add('flash');
     target.scrollIntoView({ block: 'center', behavior: 'smooth' });

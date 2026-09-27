@@ -105,7 +105,7 @@ document.addEventListener('click', (e) => {
     return;
   }
   const rc = e.target.closest('[data-crit]');
-  if (rc) { e.preventDefault(); rli.resetFilter(); viewCache.delete('rli-rubric'); showRliView('rubric').then(() => rli.flashCrit(Number(rc.dataset.crit), rc.dataset.critSide || null)); return; }
+  if (rc) { e.preventDefault(); openCrit(Number(rc.dataset.crit), rc.dataset.critSide || null); return; }
   const rf = e.target.closest('[data-rli-file]');
   if (rf) { e.preventDefault(); rli.openArtifact(rf.dataset.rliFile); return; }
   const rp = e.target.closest('[data-pref-pair]');
@@ -174,10 +174,37 @@ const TABS = [
   { key: 'pipeline',     label: 'Pipeline',     open: () => showPipeline() },
 ];
 
+// ---------- deep links (RLI) ----------
+// The URL mirrors what's open, so any view can be pasted to a teammate:
+//   ?tab=rubric&crit=4[&side=ad1] · ?tab=deliverables&slot=render-2 · ?tab=preference&pair=rd_vs_ad1
+// replaceState, never push: stepping through criteria shouldn't flood Back.
+const DEEP_KEYS = ['tab', 'crit', 'side', 'slot', 'pair'];
+function syncUrl(extra = {}) {
+  if (meta?.kind !== 'rli') return;
+  const u = new URL(location.href);
+  for (const k of DEEP_KEYS) u.searchParams.delete(k);
+  if (activeTab) u.searchParams.set('tab', activeTab);
+  for (const [k, v] of Object.entries(extra)) if (v != null && v !== '') u.searchParams.set(k, v);
+  history.replaceState(history.state, '', u);
+}
+async function openCrit(n, side = null) {
+  rli.resetFilter(); viewCache.delete('rli-rubric');
+  await showRliView('rubric');
+  rli.flashCrit(n, side);
+  syncUrl({ crit: n, side });
+}
+async function openSlot(id) {
+  rli.setDelivMode('artifact');
+  await showRliView('deliverables');
+  viewCache.get('rli-deliverables')?.node?.selectSlot?.(id);
+}
+
 // ---------- RLI queue: tasks carrying a task.json get their own tab set ----------
 const rli = createRli({
   bucket, taskId,
-  onCrit: (n, side) => { rli.resetFilter(); viewCache.delete('rli-rubric'); return showRliView('rubric').then(() => rli.flashCrit(n, side)); },
+  onCrit: (n, side) => openCrit(n, side),
+  onSlot: (id) => { if (activeTab === 'deliverables') syncUrl({ slot: id }); },
+  onPair: (pair) => syncUrl({ pair }),
   onSpec: (key) => showQcSpec(key),
   onCompare: () => { rli.setDelivMode('artifact'); viewCache.delete('rli-deliverables'); return showRliView('deliverables'); },
 });
@@ -185,7 +212,7 @@ const rli = createRli({
 let rliFixFocus = null;
 const rliEval = createRliEval({
   bucket, taskId, rli,
-  onCrit: (n, side) => { rli.resetFilter(); viewCache.delete('rli-rubric'); return showRliView('rubric').then(() => rli.flashCrit(n, side)); },
+  onCrit: (n, side) => openCrit(n, side),
   onSpec: (key) => showQcSpec(key),
   onOpenTab: (key, focus) => { rliFixFocus = focus || null; openDoc(DOCS.find((d) => d.key === key)); },
   decorateFixDocs: (root) => decorateFixDocs(root),
@@ -224,7 +251,9 @@ async function showRliView(which) {
 
 
 function setActiveTab(key) {
+  const changed = activeTab !== key;
   activeTab = key;
+  if (changed) syncUrl();
   for (const b of document.querySelectorAll('#tabs button[data-tab]')) {
     b.setAttribute('aria-selected', String(b.dataset.tab === key));
   }
@@ -2881,7 +2910,13 @@ const params = new URLSearchParams(location.search);
 if (params.get('traj')) {
   showTrajectory(params.get('traj'), params.has('msg') ? Number(params.get('msg')) : null);
 } else if (meta?.kind === 'rli') {
-  openTab(params.get('tab') || 'brief');
+  const tab = params.get('tab') || 'brief';
+  if (params.get('crit')) await openCrit(Number(params.get('crit')), params.get('side'));
+  else if (params.get('slot')) await openSlot(params.get('slot'));
+  else {
+    openTab(tab);
+    if (tab === 'preference' && params.get('pair')) setTimeout(() => rli.flashPref(params.get('pair')), 400);
+  }
 } else if (hasReview) {
   openTab('review');
 } else {
