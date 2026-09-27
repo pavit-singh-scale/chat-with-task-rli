@@ -801,59 +801,72 @@ export function createRli({ bucket, taskId, onCrit, onSpec, onOpenDoc, onCompare
   }
 
   // ---------- Preference ----------
-  // One matrix: dimensions × the three comparisons. Each cell is a 1–7 scale
-  // with the pick marked and tinted toward the side it favours; justifications
-  // sit collapsed underneath.
+  // One block per comparison. Each dimension is a 7-step scale (1 = left side
+  // better … 4 comparable … 7 = right side better) with the pick marked, read
+  // out in words; the rubric gap sits beside the overall reading as a number,
+  // so a preference that contradicts the scores is visible without arithmetic.
   async function buildPreference() {
     const t = await load();
     const comps = t.pref?.comparisons || [];
     if (!comps.length) return el('div', { class: 'rli rli-prefs' }, el('div', { class: 'callout warn' }, 'No preference ranking in this record.'));
     const align = new Map((t.checks.find((c) => c.id === 'alignment')?.align || []).map((a) => [a.pair, a]));
     const sc = (lbl) => t.scores?.[{ RD: 'golden', AD1: 'ad1', AD2: 'ad2' }[lbl]]?.percentage;
-    const dims = [];
-    for (const c of comps) for (const d of c.dimensions || []) if (!dims.find((x) => x.id === d.id)) dims.push({ id: d.id, title: d.title || d.id });
-    const lean = (score, c) => (score < 4 ? c.left : score > 4 ? c.right : '≈');
-    const strength = (score) => ['', 'strongly', 'clearly', 'slightly', '', 'slightly', 'clearly', 'strongly'][score] || '';
-    const cell = (c, d) => {
-      const s = Number(d?.score);
-      if (!s) return el('td', { class: 'rli-pm__cell' }, '—');
-      const side = s < 4 ? 'l' : s > 4 ? 'r' : 'm';
-      return el('td', { class: `rli-pm__cell is-${side}`, title: `${d.score}: ${s === 4 ? 'comparable' : `${lean(s, c)} ${strength(s)} better`}` },
-        el('div', { class: 'rli-pm__scale' }, [1, 2, 3, 4, 5, 6, 7].map((k) => el('i', { class: `${k === s ? 'on' : ''}${k === 4 ? ' mid' : ''}` }))),
-        el('span', { class: 'rli-pm__lbl' }, s === 4 ? '≈' : lean(s, c), el('b', {}, String(s))));
+    const STRENGTH = { 1: 'much better', 2: 'clearly better', 3: 'slightly better', 5: 'slightly better', 6: 'clearly better', 7: 'much better' };
+    const reading = (v, c) => {
+      if (v == null || Number.isNaN(v)) return '—';
+      const r = Math.round(v);
+      if (r === 4) return 'Comparable';
+      return `${r < 4 ? c.left : c.right} ${STRENGTH[r]}`;
     };
+    const track = (v) => el('div', { class: 'pref-track', role: 'img', 'aria-label': `${v} on a 1–7 scale` },
+      [1, 2, 3, 4, 5, 6, 7].map((k) => el('i', { class: `${k === 4 ? 'mid' : ''}${Math.round(v) === k ? ' on' : ''}${k < 4 ? ' l' : k > 4 ? ' r' : ''}` })));
     const mean = (c) => {
       const xs = (c.dimensions || []).map((d) => Number(d.score)).filter(Boolean);
-      return xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : 4;
+      return xs.length ? xs.reduce((x, y) => x + y, 0) / xs.length : null;
     };
-    const issues = [...align.values()].filter((a) => a.why);
-    return el('div', { class: 'rli rli-prefs' },
-      issues.length ? el('div', { class: 'rli-inline-issues' }, issues.map((a) => el('div', { class: `rli-issue is-${a.status}` }, statusPill(a.status), el('span', {}, a.why)))) : null,
-      el('table', { class: 'rli-pm' },
-        el('thead', {}, el('tr', {},
-          el('th', { class: 'rli-pm__dimh' }, el('span', {}, '1 = left better · 7 = right better')),
-          comps.map((c) => {
-            const a = align.get(c.pair);
-            return el('th', {},
-              el('div', { class: 'rli-pm__pair' }, el('b', {}, c.left), el('span', {}, 'vs'), el('b', {}, c.right), a ? el('span', { class: `rli-dot is-${a.status}`, title: a.why || 'Preference and rubric agree' }) : null),
-              el('div', { class: 'rli-pm__rub' }, `rubric ${pct(sc(c.left))} · ${pct(sc(c.right))}`));
-          }))),
-        el('tbody', {},
-          dims.map((d) => el('tr', { 'data-dim': d.id }, el('th', { class: 'rli-pm__dim' }, d.title), comps.map((c) => cell(c, (c.dimensions || []).find((x) => x.id === d.id))))),
-          el('tr', { class: 'rli-pm__overall' }, el('th', { class: 'rli-pm__dim' }, 'Mean'),
-            comps.map((c) => { const m = mean(c); return el('td', { class: `rli-pm__cell is-${m < 3.5 ? 'l' : m > 4.5 ? 'r' : 'm'}` }, el('b', {}, m.toFixed(1)), ' ', el('span', { class: 'rli-pm__lean' }, m < 3.5 ? `favours ${c.left}` : m > 4.5 ? `favours ${c.right}` : 'comparable')); })),
-        )),
-      el('div', { class: 'rli-justs' }, comps.map((c) => {
-        const body = el('div', { class: 'cb-prose rli-clamp' });
-        body.innerHTML = renderMarkdown(c.justification || '_(none)_');
-        let box;
-        box = el('div', { class: 'rli-justcard' },
-          el('div', { class: 'rli-justcard__head' }, el('b', {}, `${c.left} vs ${c.right}`), el('span', { class: 'hint-line' }, 'justification')),
-          body,
-          el('button', { type: 'button', class: 'link', onclick: (e) => { const open = body.classList.toggle('is-open'); box.classList.toggle('is-open', open); e.currentTarget.textContent = open ? 'Show less' : 'Read all'; } }, 'Read all'));
-        return box;
-      })),
-      t.pref.rd_better_than_ads != null ? el('p', { class: 'hint-line' }, `Contributor marked RD better than the ADs: ${t.pref.rd_better_than_ads ? 'yes' : 'no'}.`) : null,
+
+    const blocks = comps.map((c) => {
+      const a = align.get(c.pair);
+      const L = sc(c.left), R = sc(c.right);
+      const gap = L != null && R != null ? Math.round((L - R) * 10) / 10 : null;
+      const gapText = gap == null ? '' : Math.abs(gap) < 0.05 ? 'rubric: even' : `rubric: ${gap > 0 ? c.left : c.right} +${Math.abs(gap)} pts`;
+      const just = el('div', { class: 'pref-just', hidden: '' }, el('div', { class: 'pref-just__lbl' }, 'Justification'), el('p', {}, c.justification || '(no justification)'));
+      const toggle = () => { just.hidden = !just.hidden; blk.classList.toggle('is-open', !just.hidden); };
+      const dimRow = (label, v, extra, cls = '') => el('button', { type: 'button', class: `pref-row ${cls}`, onclick: toggle, title: 'Show the justification' },
+        el('span', { class: 'pref-row__lbl' }, label),
+        el('span', { class: 'pref-row__end l' }, c.left),
+        track(v),
+        el('span', { class: 'pref-row__end r' }, c.right),
+        el('span', { class: 'pref-row__read' }, reading(v, c), v != null ? el('b', {}, ` · ${Number.isInteger(v) ? v : v.toFixed(1)}`) : null, extra || null));
+      const m = mean(c);
+      const status = a?.why ? 'disagree' : 'agree';
+      const blk = el('section', { class: `pref-blk is-${a?.status || 'pass'}`, id: `pref-${c.pair}` },
+        el('header', { class: 'pref-blk__head' },
+          el('h3', {}, `${c.left} vs ${c.right}`),
+          el('span', { class: 'pref-blk__scores' }, `${c.left} ${pct(L)} · ${c.right} ${pct(R)}`),
+          el('span', { class: 'spacer' }),
+          el('span', { class: `pref-blk__status is-${status}`, title: a?.why || 'The preference leans the same way as the rubric scores.' }, status === 'agree' ? 'Agrees with the rubric' : 'Disagrees with the rubric'),
+          el('button', { type: 'button', class: 'link', onclick: toggle }, 'Justification')),
+        el('div', { class: 'pref-rows' },
+          (c.dimensions || []).map((d) => {
+            const r = dimRow(d.title || d.id, Number(d.score) || null);
+            r.dataset.dim = d.id;
+            return r;
+          }),
+          dimRow('Overall (mean)', m, el('span', { class: 'pref-row__gap' }, gapText), 'is-overall')),
+        just);
+      return blk;
+    });
+
+    const issues = comps.map((c) => [c, align.get(c.pair)]).filter(([, a]) => a?.why);
+    return el('div', { class: 'rli pref' },
+      issues.length ? el('div', { class: 'pref-banners' }, issues.map(([c, a]) => el('div', { class: `pref-banner is-${a.status}` },
+        el('b', {}, a.status === 'fail' ? 'Preference contradicts the rubric' : 'Preference and rubric pull apart'),
+        el('span', {}, a.why),
+        el('button', { type: 'button', class: 'link', onclick: () => flashPref(c.pair) }, 'Jump to it →')))) : null,
+      el('p', { class: 'pref-legend' }, 'Each row is a 1–7 rating: 1 = the left side is much better, 4 = comparable, 7 = the right side is much better. Click any row for the contributor\'s justification.'),
+      ...blocks,
+      t.pref.rd_better_than_ads != null ? el('p', { class: 'pref-legend' }, `Contributor marked RD better than both ADs: ${t.pref.rd_better_than_ads ? 'yes' : 'no'}.`) : null,
     );
   }
 
@@ -912,19 +925,15 @@ export function createRli({ bucket, taskId, onCrit, onSpec, onOpenDoc, onCompare
     if (f) openViewer(t, f, list);
   }
   function flashPref(pair, dim) {
-    const col = { rd_vs_ad1: 0, rd_vs_ad2: 1, ad1_vs_ad2: 2 }[pair];
-    const table = document.querySelector('.rli-pm');
-    if (!table) return false;
-    let target = table;
-    if (dim) {
-      const row = [...table.querySelectorAll('tbody tr')].find((r) => r.dataset.dim === dim);
-      if (row && col != null) target = row.children[col + 1];
-    }
+    const blk = document.getElementById(`pref-${pair}`);
+    if (!blk) return false;
+    const target = (dim && [...blk.querySelectorAll('.pref-row')].find((r) => r.dataset.dim === dim)) || blk;
     target.classList.add('flash');
     target.scrollIntoView({ block: 'center', behavior: 'smooth' });
     setTimeout(() => target.classList.remove('flash'), 1600);
     return true;
   }
+
 
   return { load, summaryBar, openArtifact, flashPref, buildBrief, buildDeliverables, buildRubric, buildPreference, checksPanel, flashCrit, resetFilter: () => { rubricFilter.q = ''; rubricFilter.cat = ''; rubricFilter.only = ''; } };
 }
