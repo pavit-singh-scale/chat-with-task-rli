@@ -238,9 +238,17 @@ function openTab(key) {
 
 function tabBadge(key) {
   if (meta?.kind === 'rli') {
-    if (key === 'rubric' && rliData) return String(rliData.criteria.length);
-    if (key === 'review' && rliData) { const f = rliData.checks.filter((c) => c.status === 'fail').length; return f ? String(f) : null; }
-    if (key === 'deliverables' && rliData) return String(rliData.files.golden.length + rliData.files.ad1.length + rliData.files.ad2.length);
+    if (!rliData) return null;
+    const plural = (n, w) => `${n} ${w}${n === 1 ? '' : 's'}`;
+    if (key === 'brief') return rliData.files.input.length ? plural(rliData.files.input.length, 'file') : null;
+    if (key === 'deliverables') return plural(rliData.files.golden.length + rliData.files.ad1.length + rliData.files.ad2.length, 'artifact');
+    if (key === 'rubric') return plural(rliData.criteria.length, 'criterion').replace('criterions', 'criteria');
+    if (key === 'preference') {
+      const n = (rliData.checks.find((c) => c.id === 'alignment')?.align || []).filter((x) => x.why).length;
+      return n ? { text: plural(n, 'flag'), alert: true } : null;
+    }
+    if (key === 'review') { const f = rliData.checks.filter((c) => c.status === 'fail').length; return f ? String(f) : null; }
+    return null;
   }
   if (key === 'review' && meta?.findingCount) return String(meta.findingCount);
   // Both message counts on one tab, so collapsing the three didn't cost the
@@ -264,7 +272,7 @@ function renderTabs() {
       type: 'button', role: 'tab', 'data-tab': t.key,
       'aria-selected': String(activeTab === t.key),
       onclick: () => openTab(t.key),
-    }, t.label, badge ? el('span', { class: 'badge' }, badge) : null);
+    }, t.label, badge ? el('span', { class: `badge${badge.alert ? ' badge--alert' : ''}` }, badge.text ?? badge) : null);
   });
   bar.replaceChildren(...nodes, el('div', { class: 'spacer' }), menu);
 }

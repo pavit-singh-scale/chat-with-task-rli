@@ -45,9 +45,10 @@ export function createRli({ bucket, taskId, onCrit, onSpec, onOpenDoc }) {
     if (v != null) {
       const margin = side === 'golden' ? v - gate : gate - v;
       state = margin < 0 ? 'bad' : side !== 'golden' && margin <= 3 ? 'warn' : 'ok';
+      const m = Math.abs(Math.round(margin * 10) / 10);
       sub = margin < 0
-        ? `${Math.abs(Math.round(margin * 10) / 10)} ${side === 'golden' ? 'under' : 'over'} ${gate}`
-        : side === 'golden' ? `clears ${gate}` : `${Math.round(margin * 10) / 10} pts under ${gate}`;
+        ? `${m} ${side === 'golden' ? 'under' : 'over'} the ${gate} gate`
+        : side === 'golden' ? `clears ≥${gate}` : `${m} pts under ≤${gate}`;
     }
     return el('div', { class: `rli-stat is-${state}`, title: side === 'golden' ? 'Human reference deliverable' : modelLine(t, side) },
       el('div', { class: 'rli-stat__k' }, SIDE_LABEL[side], side !== 'golden' ? el('span', {}, modelLine(t, side)) : null),
@@ -77,6 +78,7 @@ export function createRli({ bucket, taskId, onCrit, onSpec, onOpenDoc }) {
         mix ? el('div', { class: `rli-stat rli-stat--mix is-${mixCheck.status === 'fail' ? 'bad' : mixCheck.status === 'warn' ? 'warn' : 'ok'}`, title: `Format ${mix.format}% · Brief ${mix.brief}% · Quality ${mix.quality}% of positive weight (target 5 / 30 / 65)` },
           el('div', { class: 'rli-stat__k' }, 'Weight mix'),
           el('div', { class: 'rli-stat__v' }, `${mix.quality}`, el('small', {}, '% quality')),
+          el('div', { class: 'rli-stat__s' }, mix.quality >= 65 ? 'clears ≥65' : `${Math.round((65 - mix.quality) * 10) / 10} under the 65 gate`),
           el('div', { class: 'rli-minimix' }, mixSeg('format', mix.format), mixSeg('brief', mix.brief), mixSeg('quality', mix.quality), mix.other ? mixSeg('other', mix.other) : null, el('b', {}))) : null,
       ),
     );
