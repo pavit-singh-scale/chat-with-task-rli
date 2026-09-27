@@ -4,7 +4,7 @@ import { redashEnabled } from './redash.js';
 import { listWorkspace } from './workspace.js';
 import { chatCompletion } from './llm.js';
 
-// The Overview page's data layer: one brief that answers "will we make Tuesday",
+// The Overview page's data layer: one brief that answers "will we make delivery day",
 // and an LLM pass that turns the brief into prose.
 //
 // Everything time-related is computed in the DELIVERY timezone, not the server's
@@ -13,7 +13,7 @@ import { chatCompletion } from './llm.js';
 // when it is delivery day for the delivery.
 
 const TZ = 'America/Los_Angeles';
-const DELIVERY_WEEKDAY = 2;                 // Tuesday, 0 = Sunday
+const DELIVERY_WEEKDAY = config.overview.deliveryWeekday; // Monday for RLI, 0 = Sunday
 const WEEKDAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
 // The four bands the charts group work into: THE LEVELS THEMSELVES.
@@ -103,26 +103,41 @@ export function deliveryPhase(now = ptNow()) {
     phase = 'delivery_evening';
     headline = 'Packaging window.';
     tone = 'Calm and procedural. The count is what it is now; talk about packaging and what carries to next week.';
-  } else if (now.weekday === 3) {
-    phase = 'recovery';
-    headline = 'Post-delivery breather.';
-    tone = 'Relaxed. Yesterday shipped. Look back at how it went before looking forward; no urgency today.';
-  } else if (now.weekday === 4) {
-    phase = 'rebuild';
-    headline = 'Rebuilding the queue.';
-    tone = 'Steady and constructive. Five days out. This is when the next batch is actually won or lost.';
-  } else if (now.weekday === 5) {
-    phase = 'friday';
-    headline = 'Banking progress before the weekend.';
-    tone = 'Pragmatic. Flag anything that would sit untouched for two days if it is not moved today.';
-  } else if (now.weekday === 6 || now.weekday === 0) {
-    phase = 'weekend';
-    headline = 'Quiet weekend.';
-    tone = 'Low-key and brief. Do not manufacture urgency; note what Monday will need to pick up.';
   } else {
-    phase = 'eve';
-    headline = 'One day out.';
-    tone = 'Alert. Tomorrow is delivery day. Be specific about the gap and what can realistically close it today.';
+    // Everything else is relative to delivery day, so the rhythm holds whatever
+    // weekday deliveries fall on (RLI: Monday). Weekends are called out because
+    // a Monday delivery means the weekend IS the run-up.
+    const daysSince = 7 - daysUntil;
+    const weekend = now.weekday === 6 || now.weekday === 0;
+    if (daysSince === 1) {
+      phase = 'recovery';
+      headline = 'Post-delivery breather.';
+      tone = 'Relaxed. Yesterday shipped. Look back at how it went before looking forward; no urgency today.';
+    } else if (daysUntil === 1 && weekend) {
+      phase = 'eve_weekend';
+      headline = `Delivery is tomorrow (${WEEKDAY_NAMES[DELIVERY_WEEKDAY]}).`;
+      tone = 'Calm but specific. Most of the team is off — say exactly what is short and what tomorrow morning has to close; do not ask for weekend work.';
+    } else if (daysUntil === 1) {
+      phase = 'eve';
+      headline = 'One day out.';
+      tone = 'Alert. Tomorrow is delivery day. Be specific about the gap and what can realistically close it today.';
+    } else if (weekend) {
+      phase = 'weekend';
+      headline = `Weekend — ${WEEKDAY_NAMES[DELIVERY_WEEKDAY]} delivery ahead.`;
+      tone = `Low-key and brief. Do not manufacture urgency; note what ${WEEKDAY_NAMES[DELIVERY_WEEKDAY]} will need to pick up.`;
+    } else if (now.weekday === 5 && daysUntil <= 3) {
+      phase = 'friday';
+      headline = 'Last working day before delivery.';
+      tone = 'Pragmatic and urgent. Anything not moved today sits untouched until delivery day — flag it now.';
+    } else if (now.weekday === 5) {
+      phase = 'friday';
+      headline = 'Banking progress before the weekend.';
+      tone = 'Pragmatic. Flag anything that would sit untouched for two days if it is not moved today.';
+    } else {
+      phase = 'rebuild';
+      headline = 'Rebuilding the queue.';
+      tone = `Steady and constructive. ${daysUntil} days out. This is when the next batch is actually won or lost.`;
+    }
   }
 
   return {
@@ -610,7 +625,7 @@ Cover BOTH of these, in this order:
   2. Pipeline HEALTH — throughput trend, where the queue is backed up, rework, aging. One or two
      signals, whichever are actually moving. Not a list of everything.
 Then close with what to do AT THIS MOMENT — the actions should fit the day and hour you are given.
-Sunday afternoon and Tuesday 10am deserve different advice from the same numbers.
+The day before delivery and delivery morning deserve different advice from the same numbers.
 
 BREVITY IS THE POINT. Three short paragraphs, under 110 words in total. A reader should get the
 whole picture in about twenty seconds. Shorter is better every time.
@@ -660,14 +675,14 @@ function buildPrompt(brief) {
     const l = brief.deliveries.last;
     lines.push(`Last delivery: ${l.date} (${l.dayName}), ${l.tasks} tasks — ${l.tasks >= brief.target ? 'hit' : 'under'} the ${brief.target} target.`);
     // Dates here are the pipeline CLOSE-OUT, which trails the packaging run.
-    // Without this the model has to guess why a Tuesday cadence shows Wednesday
+    // Without this the model has to guess why a delivery-day cadence shows next-day
     // dates, and a guess that happens to be right is still a guess.
     // Spelled out with the actual timeline, because "the evening before" was
-    // read as "the evening before Tuesday" and produced advice about packaging on
-    // Monday. Packaging is ON delivery day; the close-out lands the next morning.
+    // read as "the evening before delivery day" and produced advice about packaging
+    // a day early. Packaging is ON delivery day; the close-out lands the next morning.
     lines.push(`Note on these dates: they are when the PIPELINE closed the batch out, which is the`
       + ` morning AFTER packaging. Packaging happens on delivery day itself, in the evening —`
-      + ` e.g. packaged Tue 2026-07-28 23:48, closed out Wed 2026-07-29 10:00. So the next`
+      + ` e.g. packaged the evening of delivery day, closed out the next morning. So the next`
       + ` packaging window is the evening of ${c.isDeliveryDay ? 'today' : c.nextDeliveryDate},`
       + ` a ${c.deliveryWeekday}. Never describe packaging as happening the day before delivery.`);
     lines.push(`Trailing 4 deliveries average ${brief.deliveries.trailingAvg} tasks. Full history, newest first: ${brief.deliveries.history.map((h) => `${h.date}=${h.tasks}`).join(', ')}.`);

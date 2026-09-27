@@ -16,10 +16,10 @@ const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const SEED_SUFFIX = process.env.CWT_SEED_SUFFIX || 'cwt26';
 // RLI / PKJA team (#rli-pkja-pt + the QM Follow-Up Tracker, 2026-09-25):
 // leads are admins, QMs are reviewers. Username = first name, lower-case.
-const RLI_ADMINS = ['pavit', 'luis', 'ernesto', 'donnahue', 'lynn'];
+const RLI_ADMINS = ['pavit', 'luis', 'ernesto', 'donnahue', 'lynn', 'guadalupe', 'george'];
 const RLI_REVIEWERS = [
   // leads / DRIs / ops
-  'erfan', 'gilberto', 'martin', 'valentina', 'guadalupe', 'feyza',
+  'erfan', 'gilberto', 'martin', 'valentina', 'feyza',
   // PKJA QMs
   'burak', 'frida', 'gabriela', 'garrett', 'jose', 'lenny', 'nevena', 'sandra', 'shafin', 'timothee', 'alberto', 'juan',
 ];

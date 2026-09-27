@@ -64,10 +64,13 @@ export const config = {
   // live here instead of in the page — the copy, the target line on the delivery
   // chart and the readiness maths all read the same two numbers.
   overview: {
-    // RLI proposal: 500 tasks in the first 4 weeks, then 250+/week.
-    targetVolume: Number(process.env.OVERVIEW_TARGET_VOLUME || 250),
-    // Cadence and greeting are anchored to America/Los_Angeles in src/overview.js:
-    // packaging runs Tuesday evening PT, so a UTC clock would call it Wednesday.
+    // RLI delivers on Mondays. Volume is TBD: 50 is the working estimate for
+    // the first delivery (Pavit, 0926) until the ramp plan lands.
+    targetVolume: Number(process.env.OVERVIEW_TARGET_VOLUME || 50),
+    // 0 = Sunday … 6 = Saturday. Cadence and greeting are anchored to
+    // America/Los_Angeles in src/overview.js, so an evening packaging run isn't
+    // pushed onto the next day by a UTC clock.
+    deliveryWeekday: Number(process.env.OVERVIEW_DELIVERY_WEEKDAY || 1),
     staleDays: Number(process.env.OVERVIEW_STALE_DAYS || 7),
     // Who the Overview page writes action items for.
     //
