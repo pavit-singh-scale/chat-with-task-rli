@@ -3999,3 +3999,92 @@ button.rev-where:hover { color: var(--accent); background: var(--accent-bg); }
 .rli-stat--mix .rli-minimix { margin-top: 4px; }
 #tabs .badge--alert { color: var(--fail); background: var(--fail-bg); }
 
+
+/* ---------- RLI Rubric (0927) ---------- */
+.rub { max-width: 1280px; }
+.rub-mix { padding: 12px 0 14px; margin-bottom: 8px; border-bottom: 1px solid var(--border); }
+.rub-mix__head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; margin-bottom: 8px; font-size: 14px; }
+.rub-mix__sub { font-size: 13px; color: var(--text-3); }
+.rub-mix__status { font-size: 13px; font-weight: 600; color: var(--ok); }
+.rub-mix__status.is-fail { color: var(--fail); }
+.rub-mix__status.is-warn { color: var(--warn); }
+.rub-mix__bar { position: relative; display: flex; gap: 3px; height: 10px; margin: 18px 0 6px; }
+.rub-mix__bar > i { border-radius: 3px; min-width: 2px; }
+.rub-mix__gate { position: absolute; top: -16px; bottom: -4px; width: 2px; background: var(--text); opacity: .75; }
+.rub-mix__gate em { position: absolute; top: -2px; left: 6px; font-size: 12px; font-style: normal; white-space: nowrap; color: var(--text-2); }
+.rub-mix__legend { display: flex; flex-wrap: wrap; gap: 6px 18px; font-size: 13px; color: var(--text-2); }
+.rub-mix__legend > span { display: inline-flex; align-items: center; gap: 6px; }
+.rub-mix__legend i { width: 10px; height: 10px; border-radius: 3px; }
+.rub-mix__legend small { font-size: 12px; color: var(--text-3); }
+.rub-mix .b-format, .rub-mix__legend .b-format { background: #8a8f98; }
+.rub-mix .b-brief { background: var(--blue); }
+.rub-mix .b-quality { background: var(--green); }
+.rub-mix .b-other { background: var(--orange); }
+
+.rub-tools { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin: 12px 0; }
+.rub-tools .spacer { flex: 1; }
+.rub-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.rub-chip { display: inline-flex; align-items: center; gap: 7px; padding: 5px 11px; border-radius: 999px; border: 1px solid var(--border); background: transparent; color: var(--text-2); font: inherit; font-size: 13px; cursor: pointer; white-space: nowrap; }
+.rub-chip span { font-size: 12px; font-variant-numeric: tabular-nums; color: var(--text-3); }
+.rub-chip:hover { border-color: var(--border-strong); color: var(--text); }
+.rub-chip.is-on { background: var(--accent-bg); border-color: var(--accent-border); color: var(--accent); }
+.rub-chip.is-on span { color: var(--accent); }
+
+.rub-table { --rub-cols: 60px minmax(0, 1fr) 120px repeat(3, 72px); }
+.rub-head, .rub-row__main { display: grid; grid-template-columns: var(--rub-cols); gap: 12px; align-items: center; }
+.rub-head { position: sticky; top: 0; z-index: 2; padding: 9px 12px; font-size: 12px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--text-3); background: var(--bg); border-bottom: 1px solid var(--border-strong); }
+.rub-head__side { text-align: center; }
+.rub-group { display: flex; align-items: center; gap: 8px; width: 100%; padding: 14px 12px 6px; border: 0; background: none; font: inherit; font-size: 13px; font-weight: 700; color: var(--text-2); text-align: left; cursor: pointer; }
+.rub-group span:last-child { font-weight: 500; color: var(--text-3); }
+.rub-group--static { cursor: default; }
+.rub-group__caret { font-size: 12px; color: var(--text-3); transition: transform .15s; }
+.rub-group[aria-expanded="true"] .rub-group__caret { transform: rotate(90deg); }
+.rub-row { border-bottom: 1px solid var(--border); scroll-margin-top: 60px; }
+.rub-row.flash { background: color-mix(in srgb, var(--yellow) 10%, transparent); }
+.rub-row__main { width: 100%; padding: 10px 12px; border: 0; background: none; font: inherit; color: var(--text); text-align: left; cursor: pointer; }
+.rub-row__main:hover { background: var(--surface-hover); }
+.rub-row.is-open > .rub-row__main { background: var(--surface); }
+.rub-n { font-family: var(--mono); font-size: 13px; color: var(--text-3); }
+.rub-crit { display: grid; gap: 4px; min-width: 0; }
+.rub-title { font-size: 15px; line-height: 1.45; }
+.rub-pen { display: inline-block; margin-right: 7px; padding: 0 6px; border-radius: var(--r-tag); font-size: 12px; font-weight: 700; color: var(--fail); background: var(--fail-bg); vertical-align: 1px; }
+.rub-meta { display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: center; font-size: 12.5px; color: var(--text-3); }
+.rub-cat { font-size: 12px; padding: 1px 7px; border-radius: var(--r-tag); background: var(--muted-bg); color: var(--text-2); }
+.rub-note.is-split { color: var(--warn); font-weight: 600; }
+.rub-note.is-allfail { color: var(--text-2); }
+.rub-w { display: flex; align-items: center; gap: 8px; }
+.rub-w__bar { flex: 1; height: 5px; border-radius: 3px; background: var(--muted-bg); overflow: hidden; }
+.rub-w__bar i { display: block; height: 100%; background: var(--text-3); border-radius: 3px; }
+.rub-w b { min-width: 28px; text-align: right; font-family: var(--mono); font-size: 13px; font-variant-numeric: tabular-nums; }
+.rub-w.is-neg b { color: var(--fail); }
+.rub-w.is-neg .rub-w__bar i { background: var(--fail); }
+.rub-v { display: grid; justify-items: center; gap: 1px; padding: 4px 0; border-radius: var(--r-control); }
+.rub-v b { font-size: 18px; line-height: 1; }
+.rub-v span { font-size: 12px; color: var(--text-3); }
+.rub-v.is-good b { color: var(--ok); }
+.rub-v.is-bad b { color: var(--fail); }
+.rub-v.is-na b { color: var(--text-faint); }
+.rub-v.is-odd { background: color-mix(in srgb, var(--warn) 13%, transparent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--warn) 40%, transparent); }
+.rub-detail { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; padding: 4px 12px 16px 84px; }
+.rub-just { padding: 10px 12px; border: 1px solid var(--border); border-top: 2px solid var(--border-strong); border-radius: var(--r-control); background: var(--bg-sunken); }
+.rub-just.is-odd { border-top: 3px solid var(--warn); }
+.rub-just__head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; margin-bottom: 6px; font-size: 13px; }
+.rub-just__model { font-family: var(--mono); font-size: 12px; color: var(--text-3); }
+.rub-just__verdict { font-size: 12px; font-weight: 600; }
+.rub-just__verdict.is-good { color: var(--ok); } .rub-just__verdict.is-bad { color: var(--fail); }
+.rub-odd-tag { margin-left: auto; font-size: 12px; font-weight: 700; color: var(--warn); }
+.rub-just__text { font-size: 14px; line-height: 1.55; color: var(--text-2); }
+.rub-just.flash { outline: 2px solid var(--yellow); outline-offset: -2px; }
+.rub-detail__foot { grid-column: 1 / -1; }
+.rub-empty { padding: 24px; text-align: center; color: var(--text-3); }
+.rub-foot { margin-top: 14px; font-size: 13px; color: var(--text-3); line-height: 1.5; }
+/* Sized by the tab's own width, not the window: Acey can take half the pane. */
+.rub { container-type: inline-size; }
+@container (max-width: 900px) {
+  .rub-table { --rub-cols: 40px minmax(0, 1fr) 44px repeat(3, 50px); }
+  .rub-head, .rub-row__main { gap: 8px; }
+  .rub-w__bar { display: none; }
+  .rub-detail { grid-template-columns: minmax(0, 1fr); padding-left: 12px; }
+  .rub-tools .spacer { display: none; }
+  .rub-v span { font-size: 12px; }
+}
