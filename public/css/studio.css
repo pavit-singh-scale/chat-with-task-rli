@@ -3962,3 +3962,8 @@ button.rev-where:hover { color: var(--accent); background: var(--accent-bg); }
 }
 .rev-row.rev-sev-HARD, .rev-fixrow.rev-sev-HARD { box-shadow: inset 3px 0 var(--fail); }
 .rev-row.rev-sev-SOFT, .rev-fixrow.rev-sev-SOFT { box-shadow: inset 3px 0 var(--warn); }
+
+/* Live pipeline ladder — numbers only, right-aligned so columns compare. */
+.rd-lvl-head.rd-ladder, .rd-lvl.rd-ladder { grid-template-columns: minmax(140px, 1fr) repeat(4, 110px); }
+.rd-ladder .rd-num { text-align: right; font-variant-numeric: tabular-nums; }
+.rd-lvl.rd-ladder .rd-num b { font-size: 14px; color: var(--text); }

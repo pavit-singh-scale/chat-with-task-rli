@@ -30,25 +30,23 @@ function note(text, cls = '') {
 // ---------------------------------------------------------------------------
 
 function renderLadder(host, ov) {
-  const max = Math.max(1, ...ov.levels.map((l) => l.total));
-  const rows = ov.levels.map((l) => {
-    const pendPct = (l.pending / max) * 100;
-    const otherPct = (l.other / max) * 100;
-    return el('div', { class: 'rd-lvl' },
-      el('div', { class: 'rd-lvl-name' }, l.label),
-      el('div', { class: 'rd-lvl-bar', title: `${l.pending} pending · ${l.other} not pending` },
-        l.pending ? el('div', { class: 'rd-seg pending', style: `width:${pendPct}%` }) : null,
-        l.other ? el('div', { class: 'rd-seg other', style: `width:${otherPct}%` }) : null),
-      el('div', { class: 'rd-lvl-pending' }, l.pending ? el('b', {}, num(l.pending)) : el('span', { class: 'dim' }, '0')),
-      el('div', { class: 'rd-lvl-meta' },
-        l.hours ? `${num(l.hours)} h` : el('span', { class: 'dim' }, '—'),
-        l.avgHours ? el('span', { class: 'rd-avg' }, ` · ${l.avgHours} h/attempt`) : null),
-    );
-  });
+  // Numbers only: a bar per level added length without adding meaning — the
+  // pending count IS the signal, and the columns compare cleanly on their own.
+  const cell = (v, fmt = num) => (v ? fmt(v) : el('span', { class: 'dim' }, '—'));
+  const rows = ov.levels.map((l) => el('div', { class: 'rd-lvl rd-ladder' },
+    el('div', { class: 'rd-lvl-name' }, l.label),
+    el('div', { class: 'rd-num' }, l.pending ? el('b', {}, num(l.pending)) : el('span', { class: 'dim' }, '0')),
+    el('div', { class: 'rd-num' }, cell(l.other)),
+    el('div', { class: 'rd-num' }, cell(l.hours, (h) => `${num(h)} h`)),
+    el('div', { class: 'rd-num' }, cell(l.avgHours, (h) => `${h} h`))));
 
   host.replaceChildren(
-    el('div', { class: 'rd-lvl-head' },
-      el('div', {}, 'Review level'), el('div', {}, ''), el('div', {}, 'Pending'), el('div', {}, `Worked (${ov.days}d)`)),
+    el('div', { class: 'rd-lvl-head rd-ladder' },
+      el('div', {}, 'Review level'),
+      el('div', { class: 'rd-num' }, 'Pending'),
+      el('div', { class: 'rd-num', title: 'Nodes at this level that are no longer live (completed or canceled)' }, 'Not pending'),
+      el('div', { class: 'rd-num' }, `Worked (${ov.days}d)`),
+      el('div', { class: 'rd-num' }, 'Per attempt')),
     ...rows,
     note(`${num(ov.pending)} tasks pending across all layers · ${num(ov.totalHours)} hours worked in the last ${ov.days} days.`),
   );
