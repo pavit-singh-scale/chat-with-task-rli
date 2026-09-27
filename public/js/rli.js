@@ -846,7 +846,7 @@ export function createRli({ bucket, taskId, onCrit, onSpec, onOpenDoc, onCompare
   const EVAL_RANK = { issue: 0, unchecked: 1, ok: 2 };
   const FILTERS = [
     ['', 'All', () => true],
-    ['evalflag', 'Eval flags', (c, ev) => evalByCrit(ev, c.n).status === 'issue'],
+    ['evalflag', '⚠ Eval flags', (c, ev) => evalByCrit(ev, c.n).status === 'issue'],
     ['split', 'Verdicts differ', splitVerdicts],
     ['goldenfail', 'RD fails', (c) => c.verdicts.golden.good === false],
     ['ad1only', 'Only AD1 fails', (c) => c.verdicts.golden.good && c.verdicts.ad1.good === false && c.verdicts.ad2.good],
@@ -919,7 +919,7 @@ export function createRli({ bucket, taskId, onCrit, onSpec, onOpenDoc, onCompare
         el('b', {}, v.good ? '✓' : '✕'), el('span', {}, verdictWord(c, v)));
     };
     const evalCell = (e) => el('div', { class: `rub-e is-${e.status}`, title: e.status === 'issue' ? `Eval flags: ${e.note}` : e.status === 'ok' ? `Eval agrees${e.note ? `: ${e.note}` : ''}` : 'Not checked by the eval yet' },
-      el('b', {}, e.status === 'issue' ? '✕' : e.status === 'ok' ? '✓' : '·'), el('span', {}, e.status === 'issue' ? 'Flag' : e.status === 'ok' ? 'OK' : '—'));
+      el('b', {}, e.status === 'issue' ? '⚠' : e.status === 'ok' ? '✓' : '·'), el('span', {}, e.status === 'issue' ? 'Flag' : e.status === 'ok' ? 'OK' : '—'));
 
     const justList = (c) => SIDE_KEYS.map((s) => {
       const v = c.verdicts[s];
@@ -944,7 +944,7 @@ export function createRli({ bucket, taskId, onCrit, onSpec, onOpenDoc, onCompare
       } }, e.status === 'unchecked' ? 'Check with AI' : 'Re-check with AI');
       const ask = onAskAcey ? el('button', { type: 'button', class: 'btn btn--ghost', onclick: () => onAskAcey(`Look at [C${c.n}](crit://C${c.n}) — are the RD, AD1 and AD2 verdicts right, and do the justifications match the artifacts?`) }, 'Ask Acey') : null;
       const head = e.status === 'issue'
-        ? el('div', { class: 'rpane-status is-issue' }, el('b', {}, '✕ Eval flags this criterion'), e.finding?.dim ? specChip(e.finding.dim) : null)
+        ? el('div', { class: 'rpane-status is-issue' }, el('b', {}, '⚠ Eval flags this criterion'), e.finding?.dim ? specChip(e.finding.dim) : null)
         : e.status === 'ok'
           ? el('div', { class: 'rpane-status is-ok' }, el('b', {}, '✓ Eval agrees with the grading'))
           : el('div', { class: 'rpane-status' }, el('b', {}, 'Not checked by the eval yet'));
@@ -990,7 +990,7 @@ export function createRli({ bucket, taskId, onCrit, onSpec, onOpenDoc, onCompare
           el('span', { class: 'rub-crit' },
             el('span', { class: 'rub-title' }, c.title),
             el('span', { class: 'rub-meta' }, c.category || '—', c.weight < 0 ? el('span', { class: 'rub-pen' }, 'penalty') : null,
-              e.status === 'issue' ? el('span', { class: 'rub-flag' }, `✕ ${e.note}`) : null)),
+              e.status === 'issue' ? el('span', { class: 'rub-flag' }, el('i', { 'aria-hidden': 'true' }, '⚠'), ` ${e.note}`) : null)),
           el('span', { class: `rub-w${c.weight < 0 ? ' is-neg' : ''}` }, c.weight > 0 ? `+${c.weight}` : String(c.weight)),
           ...SIDE_KEYS.map((s) => verdictCell(c, s)),
           evalCell(e)),
@@ -1060,7 +1060,7 @@ export function createRli({ bucket, taskId, onCrit, onSpec, onOpenDoc, onCompare
       el('div', { class: 'rub-split' },
         el('div', { class: 'rub-table' }, headRow, body),
         pane),
-      el('p', { class: 'rub-foot' }, 'Penalty criteria (negative weight): "Present" means the defect is there and its weight is deducted — that is what the record\'s "passed: true" means on a penalty, and it matches the printed scores. Eval: ✕ the AI eval flags it · ✓ checked and agrees · — not checked yet (select it and press "Check with AI").'),
+      el('p', { class: 'rub-foot' }, 'Penalty criteria (negative weight): "Present" means the defect is there and its weight is deducted — that is what the record\'s "passed: true" means on a penalty, and it matches the printed scores. Eval: ⚠ the AI eval flags it · ✓ checked and agrees · — not checked yet (select it and press "Check with AI"). A red ✕ is only ever a side\'s own verdict failing.'),
     );
     rubricRoot = root;
     return root;

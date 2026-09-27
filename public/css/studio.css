@@ -4302,3 +4302,12 @@ body:has(.acey-fab:not([hidden])) main { padding-bottom: 96px; }
 .sb-stat.is-warn b { color: var(--warn); }
 .strip--rli .rli-sum__next { font-size: 13px; }
 .sb b { font-family: var(--font); }
+
+/* Eval flags get their own marker: an amber caution sign. Red ✕ stays the
+   side's own verdict failing, so the two never read as the same thing. */
+.rub-e.is-issue b, .rub-e.is-issue span { color: var(--warn); }
+.rub-e.is-issue b { font-size: 17px; }
+.rub-flag { color: var(--warn); font-weight: 500; }
+.rub-flag i { font-style: normal; }
+.rpane-eval.is-issue { border-color: color-mix(in srgb, var(--warn) 55%, transparent); background: var(--warn-tint, var(--bg-sunken)); }
+.rpane-status.is-issue b { color: var(--warn); }
