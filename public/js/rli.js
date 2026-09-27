@@ -87,38 +87,108 @@ export function createRli({ bucket, taskId, onCrit, onSpec, onOpenDoc, onCompare
   // ---------- Brief ----------
   // The brief is the thing being read, so it gets a centred reading column;
   // the reference files follow as one uniform gallery underneath.
+  // File names in the brief become pills that open the file; a path that
+  // doesn't resolve gets a red "— missing" pill. Under each reference file:
+  // which section cites it, or that the brief never names it.
+  const escRe = (x) => x.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  function briefFileIndex(t) {
+    const paths = t.checks.find((c) => c.id === 'paths')?.paths || { explicit: [], ranges: [], problems: [], unlisted: [] };
+    const inputs = t.files.input;
+    const byName = new Map(inputs.map((f) => [f.name.toLowerCase(), f]));
+    const byRel = new Map(inputs.map((f) => [f.rel.toLowerCase(), f]));
+    const bad = new Map(paths.problems.filter((p) => p.ref && p.sev === 'fail' && /no matching file|but the input is|misspelled/.test(p.text)).map((p) => [p.ref, p.text]));
+    const tokens = new Map(); // text as written → { file | null, problem }
+    for (const p of paths.explicit) {
+      const rel = p.replace(/^[^/]+\//, '').toLowerCase();
+      const f = byRel.get(rel) || byName.get(rel.split('/').pop());
+      tokens.set(p, { file: bad.has(p) && !/misspelled/.test(bad.get(p)) ? null : f || null, problem: bad.get(p) || (f ? null : 'no matching input file') });
+    }
+    for (const f of inputs) if (f.name.length > 4 && !tokens.has(f.name)) tokens.set(f.name, { file: f, problem: null });
+    const alts = [...tokens.keys()].sort((x, y) => y.length - x.length).map(escRe);
+    const re = alts.length ? new RegExp(`(${alts.join('|')})`, 'g') : null;
+    return { paths, tokens, re, inputs };
+  }
+  function pillify(root, idx, t) {
+    if (!idx.re) return;
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+    const nodes = [];
+    while (walker.nextNode()) nodes.push(walker.currentNode);
+    for (const node of nodes) {
+      const text = node.nodeValue;
+      idx.re.lastIndex = 0;
+      if (!idx.re.test(text)) continue;
+      idx.re.lastIndex = 0;
+      const frag = document.createDocumentFragment();
+      let last = 0;
+      for (const m of text.matchAll(idx.re)) {
+        frag.append(text.slice(last, m.index));
+        const tok = idx.tokens.get(m[1]);
+        frag.append(tok?.file && !tok.problem
+          ? el('button', { type: 'button', class: 'rli-fpill', title: `Open ${tok.file.rel}`, onclick: () => openViewer(t, tok.file, idx.inputs) }, m[1])
+          : el('span', { class: 'rli-fpill is-missing', title: tok?.problem || 'not in the inputs' }, m[1], el('em', {}, ' — missing')));
+        last = m.index + m[1].length;
+      }
+      frag.append(text.slice(last));
+      // A path in `code` becomes the pill itself rather than a pill inside a code chip.
+      const host = node.parentNode;
+      if (host.tagName === 'CODE' && host.childNodes.length === 1) host.replaceWith(frag); else node.replaceWith(frag);
+    }
+  }
+  function citedIn(t, idx) {
+    const cites = new Map(idx.inputs.map((f) => [f.path, []]));
+    for (const sec of t.briefSections) {
+      const body = String(sec.body || '').toLowerCase();
+      for (const f of idx.inputs) {
+        const hit = body.includes(f.name.toLowerCase()) || body.includes(f.rel.toLowerCase())
+          || idx.paths.ranges.some((r) => body.includes(`${r.root}${r.stem}`.toLowerCase()) && new RegExp(`^${escRe(r.stem)}(\\d+)${escRe(r.ext)}$`, 'i').test(f.name)
+            && (() => { const n = Number(f.name.match(/(\d+)\.\w+$/)?.[1]); return n >= r.from && n <= r.to; })());
+        if (hit && !cites.get(f.path).includes(sec.heading)) cites.get(f.path).push(sec.heading);
+      }
+    }
+    return cites;
+  }
+
   async function buildBrief() {
     const t = await load();
-    const paths = t.checks.find((c) => c.id === 'paths')?.paths;
-    const unlisted = new Set((paths?.unlisted || []).map((f) => f.rel));
+    const idx = briefFileIndex(t);
+    const paths = idx.paths;
+    const cites = citedIn(t, idx);
+    const unnamed = idx.inputs.filter((f) => !cites.get(f.path)?.length && paths.unlisted.some((u) => u.rel === f.rel));
+    const caption = (f) => {
+      const c = cites.get(f.path) || [];
+      if (c.length) return { text: `Cited in ${c.join(', ')}`, bad: false };
+      return paths.unlisted.some((u) => u.rel === f.rel) ? { text: 'Not named in the brief', bad: true } : { text: 'Named in the brief', bad: false };
+    };
     const sections = t.briefSections.length
       ? t.briefSections.map((s) => {
         const body = el('div', { class: 'cb-prose' });
         body.innerHTML = renderMarkdown(s.body || '_(empty)_');
+        pillify(body, idx, t);
         return el('section', { class: 'rli-brief__sec' }, el('h4', {}, s.heading), body);
       })
       : [el('div', { class: 'callout warn' }, 'This record has no brief.')];
-    const inputs = t.files.input;
+    const inputs = idx.inputs;
     const visual = inputs.filter((f) => ['image', 'video'].includes(f.kind));
     const other = inputs.filter((f) => !['image', 'video'].includes(f.kind));
+    const failing = paths.problems.filter((p) => p.sev === 'fail');
     return el('div', { class: 'rli rli-brief' },
       el('article', { class: 'rli-brief__doc' }, ...sections),
       el('section', { class: 'rli-refs' },
         el('header', { class: 'rli-refs__head' },
           el('h4', {}, 'Reference files'),
           el('span', { class: 'rli-refs__n' }, `${inputs.length}${t.inputsDeclared != null && t.inputsDeclared !== inputs.length ? ` · record says ${t.inputsDeclared}` : ''}`),
-          unlisted.size ? el('span', { class: 'rli-refs__flag' }, `${unlisted.size} not named in the brief`) : null,
-          paths?.problems?.length ? el('span', { class: 'rli-refs__flag is-fail' }, `${paths.problems.length} brief path${paths.problems.length > 1 ? 's' : ''} don't resolve`) : null),
-        paths?.problems?.length ? el('div', { class: 'rli-probs' }, paths.problems.map((p) => el('div', { class: `rli-prob is-${p.sev}` }, p.text))) : null,
+          unnamed.length ? el('span', { class: 'rli-refs__flag' }, `${unnamed.length} not named in the brief`) : null,
+          failing.length ? el('span', { class: 'rli-refs__flag is-fail' }, `${failing.length} brief path${failing.length > 1 ? 's don\'t' : ' doesn\'t'} resolve`) : null),
+        paths.problems.length ? el('div', { class: 'rli-probs' }, paths.problems.map((p) => el('div', { class: `rli-prob is-${p.sev}` }, p.text))) : null,
         inputs.length ? null : el('div', { class: 'hint-line' }, 'No input files.'),
-        visual.length ? el('div', { class: 'rli-gallery' }, visual.map((f) => fileTile(t, f, { mark: unlisted.has(f.rel) ? 'not in brief' : null, list: inputs }))) : null,
-        other.length ? fileList(t, other, inputs, unlisted) : null,
+        visual.length ? el('div', { class: 'rli-gallery' }, visual.map((f) => fileTile(t, f, { list: inputs, caption: caption(f) }))) : null,
+        other.length ? fileList(t, other, inputs, new Set(), caption) : null,
       ),
     );
   }
 
   // ---------- file tiles + viewers ----------
-  function fileTile(t, f, { mark = null, list = null } = {}) {
+  function fileTile(t, f, { mark = null, list = null, caption = null } = {}) {
     const open = () => openViewer(t, f, list || [f]);
     let face;
     if (f.kind === 'image') face = el('img', { src: rawUrl(f.path), loading: 'lazy', alt: f.name });
@@ -126,6 +196,7 @@ export function createRli({ bucket, taskId, onCrit, onSpec, onOpenDoc, onCompare
     return el('button', { type: 'button', class: `rli-tile k-${f.kind}`, title: `${f.rel} · ${fmtSize(f.size)}`, onclick: open },
       el('div', { class: 'rli-tile__face' }, face),
       el('div', { class: 'rli-tile__name' }, f.rel),
+      caption ? el('div', { class: `rli-tile__cite${caption.bad ? ' is-bad' : ''}` }, caption.text) : null,
       mark ? el('span', { class: 'rli-tile__mark' }, mark) : null,
     );
   }
@@ -134,12 +205,12 @@ export function createRli({ bucket, taskId, onCrit, onSpec, onOpenDoc, onCompare
   }
 
   // Non-visual files read better as a list than as big glyph tiles.
-  function fileList(t, files, list, unlisted = new Set()) {
+  function fileList(t, files, list, unlisted = new Set(), caption = null) {
     return el('div', { class: 'rli-flist' }, files.map((f) => el('button', { type: 'button', class: 'rli-frow', onclick: () => openViewer(t, f, list), title: f.rel },
       f.derived && (f.derived.thumb || ['image', 'drawing'].includes(f.derived.kind))
         ? el('img', { class: 'rli-frow__thumb', src: rawUrl(f.derived.thumb || f.derived.path), alt: '', loading: 'lazy' })
         : el('span', { class: `rli-ext k-${f.kind}` }, (f.name.split('.').pop() || '').toUpperCase().slice(0, 4)),
-      el('span', { class: 'rli-frow__name' }, f.rel),
+      el('span', { class: 'rli-frow__name' }, f.rel, caption ? el('small', { class: `rli-frow__cite${caption(f).bad ? ' is-bad' : ''}` }, caption(f).text) : null),
       unlisted.has(f.rel) ? el('span', { class: 'rli-tile__mark rli-tile__mark--inline' }, 'not in brief') : null,
       el('span', { class: 'rli-frow__size' }, fmtSize(f.size)))));
   }

@@ -4186,3 +4186,14 @@ button.rev-where:hover { color: var(--accent); background: var(--accent-bg); }
 }
 /* 3D toolbar inside the equal-width compare panes: wrap instead of clipping. */
 .art-pane .rli-3d__tools { flex-wrap: wrap; justify-content: center; row-gap: 2px; max-width: calc(100% - 12px); }
+
+/* ---------- RLI Brief pills + citations (0927) ---------- */
+.rli-fpill { display: inline; padding: 1px 7px; margin: 0 1px; border-radius: var(--r-tag); border: 1px solid var(--accent-border); background: var(--accent-bg); color: var(--accent); font: inherit; font-family: var(--mono); font-size: .88em; cursor: pointer; overflow-wrap: anywhere; }
+.rli-fpill:hover { background: var(--accent-bg-hover); }
+.rli-fpill.is-missing { border-color: var(--fail-border); background: var(--fail-bg); color: var(--fail); cursor: help; }
+.rli-fpill.is-missing em { font-style: normal; font-family: var(--font); font-weight: 600; }
+.rli-tile__cite { padding: 0 7px 7px; font-size: 12px; color: var(--text-3); line-height: 1.35; overflow-wrap: anywhere; text-align: left; }
+.rli-tile__cite.is-bad { color: var(--warn); font-weight: 600; }
+.rli-frow__name small { display: block; font-family: var(--font); font-size: 12px; color: var(--text-3); }
+.rli-frow__name small.is-bad { color: var(--warn); font-weight: 600; }
+.rli-brief__doc .cb-prose { font-size: 16px; line-height: 1.65; }
