@@ -45,7 +45,8 @@ UPSTREAM SCHEMA (Snowflake via Redash, data source ${config.redash.dataSourceId}
                            BATCH_NAME, TASK_ID, ATTEMPT_ID, LAST_ACTIVE_PT.
                            Always filter TYPE_ENTRY = 'fwa'. SBQ_FLAG is REVIEW_STATUS='rejected'.
   PUBLIC.PIPELINEV3HUMANNODES  one row per task per review level. TASK, REVIEW_LEVEL, STATUS
-                           ('pending'/'completed'/'canceled'), CREATED_AT (entered the level),
+                           ('pending'/'paused'/'completed'/'canceled' — live = pending OR paused),
+                           CREATED_AT (entered the level),
                            UPDATED_AT (last touched — NOT entry, do not age from it), WORKER.
   PUBLIC.TASKATTEMPTS      TASK, ATTEMPTED_BY, ATTEMPTED_AT, ATTEMPTED_AT_REVIEW_LEVEL,
                            V2_TIME_SPENT_SECS (tracked, not billable), V2_ACTIVE_TIME_SPENT_SECS,
@@ -60,9 +61,10 @@ UPSTREAM SCHEMA (Snowflake via Redash, data source ${config.redash.dataSourceId}
   VIEW.REVIEW_TASK_MOVEMENT_V3  movement events with PREVIOUS_REVIEW_LEVEL and TRANSITION_TYPE.
                            Accurate but SLOW (~30s) — only when previous-level is genuinely needed.
 
-REVIEW LEVELS: L-1 authoring, L0 first review, L10 QM, L12 deliverable. L1 and L8 are BLOCKED
-lanes (content and engineering problems), not steps on the forward path — never present them as
-pipeline progress. Refer to levels as L-1 / L0 / L10 / L12, never as invented stage names.
+REVIEW LEVELS (RLI): L-1 authoring (brief/input sufficiency + rubric), L0 first review, L1 review
+(sends tasks on to L10), L10 QM review, L12 delivery pool. L4, L8 and L11 are off the forward path
+and their meaning is not confirmed — L8 looks like a fresh pool awaiting eval; say "unconfirmed"
+rather than inventing a role for L4 / L11. Refer to levels by number, never invented stage names.
 `.trim();
 
 export const ANALYST_TOOL_DEFS = [

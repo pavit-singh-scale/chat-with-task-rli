@@ -753,7 +753,9 @@ function buildPrompt(brief) {
     lines.push('  Use the day names given here verbatim; never infer a weekday from a date yourself.');
     const recent = ik.days.slice(-6).map((d) => `${d.day}(${d.dayName})=${d.entered}`).join(', ');
     if (recent) lines.push(`  Recent daily intake: ${recent}.`);
-    lines.push('  L12 fills late: for the 350 batch, 80% arrived in the final three days and 135 on delivery day itself.');
+    // (An ACC-era line claimed a fixed intake shape — "80% of the 350 batch in the
+    // final three days". RLI has one delivery so far; the daily intake above is
+    // the only evidence of its shape, so no pattern is asserted.)
   }
 
   const h = brief.health;

@@ -87,6 +87,8 @@ export const REGISTRY = {
   task_labels: {
     label: 'Platform label fields for tasks',
     description: 'The annotator label as platform holds it now — preference rating and winning side.',
+    // ACC-era: reads A/B rank fields RLI records don't carry, so it returns nothing here.
+    accOnly: true,
     sql: 'task_labels.sql',
     params: { task_ids: { type: 'taskIdList', required: true, max: 500 } },
   },
@@ -147,6 +149,8 @@ export const REGISTRY = {
   inflight_matchups: {
     label: 'In-flight tasks and matchups',
     description: 'Every task pending at any review level, with the A/B model pairing it compares.',
+    // ACC-era: the pairing comes from agent_model in the ACC payload; RLI has none.
+    accOnly: true,
     sql: 'inflight_matchups.sql',
     params: { project_id: { type: 'objectId', default: () => config.redash.projectId } },
   },
@@ -226,7 +230,9 @@ export const REGISTRY = {
 
 // Public shape for the UI / copilot: what can be run and with which params.
 export function describeRegistry() {
-  return Object.entries(REGISTRY).map(([name, entry]) => ({
+  // ACC-only queries stay runnable by name but are not offered — on RLI they
+  // return nothing, and an analyst reading "winning side" will build a story on it.
+  return Object.entries(REGISTRY).filter(([, entry]) => !entry.accOnly).map(([name, entry]) => ({
     name,
     label: entry.label,
     description: entry.description,

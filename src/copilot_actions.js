@@ -335,9 +335,8 @@ export const ACTION_TOOL_DEFS = [
         + 'with their lane, verdict, claim, writing tag and tripped QC dimensions. '
         + 'Use this BEFORE proposing any bulk move so the selection is grounded in what is actually on the board. '
         + `Lanes: ${LANES.join(', ')}. Severity buckets: HARD_FAIL, SOFT_FAIL, PASS, UNSORTED. `
-        + 'The writing tag is the "✎ Spelling/Grammar" chip on the board card: '
-        + '"only" = R23/R24 are the ONLY tripped dimensions, so the task auto-routes to Grammar Fixes and resolves as GRAMMAR_ONLY; '
-        + '"flagged" = spelling/grammar tripped ALONGSIDE other fails, so it does NOT belong in Grammar Fixes and resolves as FIXES_MADE; '
+        + 'The writing tag is an ACC carry-over keyed to ACC rubric items R23/R24; RLI evals grade on D1–D20, so on RLI it is never '
+        + '"only"/"flagged" and the Grammar Fixes lane / GRAMMAR_ONLY verdict do not apply — do not route RLI tasks there. '
         + '"clean" = audited with no writing fail; "unaudited" = review.md has no autoqc fence, so nothing is known — never treat that as clean. '
         + 'A row marked "[moved in/out by hand]" had its routing overridden by a human.',
       parameters: {
