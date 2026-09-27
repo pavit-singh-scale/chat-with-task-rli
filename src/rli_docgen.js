@@ -145,6 +145,9 @@ function resolveEdit(rec, e, n) {
   if (!side) return { error: `edit ${n}: side must be rd, ad1 or ad2` };
   const v = c[side] || {};
   if (e.field === 'passed') {
+    // Models write verdicts in words as often as booleans; the record stores booleans.
+    const asBool = (x) => ({ pass: 'true', passed: 'true', yes: 'true', true: 'true', fail: 'false', failed: 'false', no: 'false', false: 'false' })[String(x).trim().toLowerCase()] ?? String(x);
+    e = { ...e, old: asBool(e.old), new: asBool(e.new) };
     const cur = String(v.passed);
     if (String(e.old) !== cur) return { error: `edit ${n}: C${e.crit}·${SIDE_LABEL[side]} passed is ${cur}, not ${e.old}` };
     if (!['true', 'false'].includes(String(e.new)) || String(e.new) === cur) return { error: `edit ${n}: passed must flip to the other boolean` };
