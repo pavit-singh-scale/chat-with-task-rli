@@ -11,7 +11,7 @@ const KIND_ORDER = ['image', 'video', 'audio', 'pdf', 'model3d', 'cad', 'design'
 const KIND_LABEL = { image: 'Images', video: 'Video', audio: 'Audio', pdf: 'PDF', model3d: '3D models', cad: 'CAD / scene files', design: 'Design files', doc: 'Documents', sheet: 'Spreadsheets', text: 'Text & code', archive: 'Archives', other: 'Other' };
 const GATE = { golden: 97, ad1: 70, ad2: 50 };
 
-export function createRli({ bucket, taskId, onCrit, onSpec, onOpenDoc, onCompare, onSlot, onPair }) {
+export function createRli({ bucket, taskId, onCrit, onSpec, onOpenDoc, onCompare, onSlot, onPair, onDecorateFixes, onAskAcey }) {
   let cache = null;
   const load = async (refresh = false) => {
     if (!cache || refresh) cache = api(`/task/${bucket}/${taskId}/rli`);
@@ -57,30 +57,34 @@ export function createRli({ bucket, taskId, onCrit, onSpec, onOpenDoc, onCompare
     );
   }
 
-  function summaryBar(t, { queue = null, onChecks } = {}) {
+  // One slim line above the tabs: where the task sits, and the four numbers
+  // that decide it — each against its gate. The brief itself is the Brief tab.
+  function summaryBar(t, { queue = null } = {}) {
     const mixCheck = t.checks.find((c) => c.id === 'weights');
     const mix = mixCheck?.mix;
-    const n = (st) => t.checks.filter((c) => c.status === st).length;
-    const fails = t.checks.filter((c) => c.status === 'fail');
-    const mixSeg = (b, v) => el('i', { class: `b-${b}`, style: `flex:${Math.max(v || 0, 0.001)}` });
-    return el('div', { class: 'rli-sum' },
-      el('div', { class: 'rli-sum__id' },
-        el('div', { class: 'rli-sum__meta' },
-          el('span', { class: 'rli-sum__domain' }, t.domain || 'Unknown domain'),
-          t.timeline ? el('span', {}, t.timeline.replace(/\s*\(.*\)/, '')) : null,
-          queue?.n ? el('span', {}, `${queue.n} of ${queue.total} in your queue`) : null),
-        el('div', { class: 'rli-sum__title', title: t.title }, t.title || '(no brief in this record)'),
-        t.missing.some((m) => !['timeline', 'inputs block'].includes(m))
-          ? el('div', { class: 'rli-sum__warn' }, `Record incomplete — missing ${t.missing.join(', ')}`) : null,
-      ),
-      el('div', { class: 'rli-sum__stats' },
-        gateStat(t, 'golden'), gateStat(t, 'ad1'), gateStat(t, 'ad2'),
-        mix ? el('div', { class: `rli-stat rli-stat--mix is-${mixCheck.status === 'fail' ? 'bad' : mixCheck.status === 'warn' ? 'warn' : 'ok'}`, title: `Format ${mix.format}% · Brief ${mix.brief}% · Quality ${mix.quality}% of positive weight (target 5 / 30 / 65)` },
-          el('div', { class: 'rli-stat__k' }, 'Weight mix'),
-          el('div', { class: 'rli-stat__v' }, `${mix.quality}`, el('small', {}, '% quality')),
-          el('div', { class: 'rli-stat__s' }, mix.quality >= 65 ? 'clears ≥65' : `${Math.round((65 - mix.quality) * 10) / 10} under the 65 gate`),
-          el('div', { class: 'rli-minimix' }, mixSeg('format', mix.format), mixSeg('brief', mix.brief), mixSeg('quality', mix.quality), mix.other ? mixSeg('other', mix.other) : null, el('b', {}))) : null,
-      ),
+    const stat = (label, v, gateTxt, state, title) => el('span', { class: `sb-stat is-${state}`, title },
+      el('span', { class: 'sb-stat__k' }, label),
+      el('b', {}, v == null ? '—' : `${Math.round(v * 10) / 10}`),
+      el('span', { class: 'sb-stat__g' }, gateTxt));
+    const side = (s) => {
+      const v = t.scores?.[s]?.percentage ?? null;
+      const gate = GATE[s];
+      const margin = v == null ? null : s === 'golden' ? v - gate : gate - v;
+      const state = margin == null ? 'na' : margin < 0 ? 'bad' : s !== 'golden' && margin <= 3 ? 'warn' : 'ok';
+      const gateTxt = s === 'golden' ? `≥ ${gate}` : `≤ ${gate}`;
+      const title = `${SIDE_LABEL[s]}${s === 'golden' ? ' (human reference)' : ` · ${modelLine(t, s)}`}: ${v ?? '—'}% · gate ${gateTxt}${margin == null ? '' : margin < 0 ? ` — ${Math.abs(Math.round(margin * 10) / 10)} pts ${s === 'golden' ? 'under' : 'over'}` : ` — ${Math.round(margin * 10) / 10} pts of room`}`;
+      return stat(SIDE_LABEL[s], v, gateTxt, state, title);
+    };
+    const incomplete = t.missing.some((m) => !['timeline', 'inputs block'].includes(m));
+    return el('div', { class: 'sb' },
+      el('span', { class: 'sb-meta' },
+        el('b', {}, t.domain || 'Unknown domain'),
+        t.timeline ? el('span', {}, t.timeline.replace(/\s*\(.*\)/, '')) : null,
+        queue?.n ? el('span', {}, `${queue.n} of ${queue.total} in your queue`) : null,
+        incomplete ? el('span', { class: 'sb-warn' }, `Record incomplete — missing ${t.missing.join(', ')}`) : null),
+      el('span', { class: 'sb-stats' },
+        side('golden'), side('ad1'), side('ad2'),
+        mix ? stat('Quality', mix.quality, '≥ 65%', mix.quality < 65 ? 'bad' : 'ok', `Aesthetics + functionality + usability = ${mix.quality}% of positive weight (format ${mix.format}% · brief ${mix.brief}%); the gate is ≥ 65%.`) : null),
     );
   }
 
@@ -816,21 +820,39 @@ export function createRli({ bucket, taskId, onCrit, onSpec, onOpenDoc, onCompare
   }
 
   // ---------- Rubric ----------
-  // One flat, sortable table: what each criterion asks, its weight, and the
-  // three verdicts. Deliberately quiet — red only where something failed.
+  // One flat, sortable table — what each criterion asks, its weight, the three
+  // verdicts, and what the AI eval made of it. Selecting a row fills the pane on
+  // the right: the eval's explanation, the suggested fix (approve / edit / deny,
+  // same ledger as Remediation), and the three justifications. Deliberately
+  // quiet — red only where something failed or the eval flags it.
   const rubricFilter = { q: '', cat: '', only: '' };
   const rubricSort = { key: 'n', dir: 1 };
+  const rubricSel = { n: null };
   const SIDE_KEYS = ['golden', 'ad1', 'ad2'];
   const splitVerdicts = (c) => new Set(SIDE_KEYS.map((s) => c.verdicts[s].good)).size > 1;
+  let evalCache = null;
+  const loadEval = async (refresh = false) => {
+    if (!evalCache || refresh) evalCache = api(`/task/${bucket}/${taskId}/eval`).catch(() => null);
+    return evalCache;
+  };
+  // crit → { status: 'issue'|'ok'|'unchecked', note, explanation, finding }
+  function evalByCrit(ev, n) {
+    const c = ev?.criteria?.[n];
+    const f = ev?.findings?.find((x) => (c?.finding && x.id === c.finding) || x.crit === n || x.fix?.edits?.some((e) => Number(e.crit) === n));
+    if (f && f.sev !== 'INFO') return { status: 'issue', note: f.headline, explanation: f.evidence, finding: f, source: c?.source || 'eval' };
+    if (c) return { status: c.ok ? 'ok' : 'issue', note: c.note, explanation: c.explanation || '', finding: f || null, source: c.source };
+    return { status: 'unchecked' };
+  }
+  const EVAL_RANK = { issue: 0, unchecked: 1, ok: 2 };
   const FILTERS = [
     ['', 'All', () => true],
+    ['evalflag', 'Eval flags', (c, ev) => evalByCrit(ev, c.n).status === 'issue'],
     ['split', 'Verdicts differ', splitVerdicts],
     ['goldenfail', 'RD fails', (c) => c.verdicts.golden.good === false],
     ['ad1only', 'Only AD1 fails', (c) => c.verdicts.golden.good && c.verdicts.ad1.good === false && c.verdicts.ad2.good],
     ['heavy', 'Weight ≥ 8', (c) => Math.abs(c.weight) >= 8],
     ['negative', 'Penalties', (c) => c.weight < 0],
   ];
-  // good=false first when sorting a verdict column ascending — "show me what failed".
   const SORTERS = {
     n: (c) => c.n,
     title: (c) => c.title.toLowerCase(),
@@ -838,10 +860,41 @@ export function createRli({ bucket, taskId, onCrit, onSpec, onOpenDoc, onCompare
     golden: (c) => (c.verdicts.golden.good === false ? 0 : 1),
     ad1: (c) => (c.verdicts.ad1.good === false ? 0 : 1),
     ad2: (c) => (c.verdicts.ad2.good === false ? 0 : 1),
+    eval: (c, ev) => EVAL_RANK[evalByCrit(ev, c.n).status],
   };
+  const verdictWord = (c, v) => (c.weight < 0 ? (v.passed ? 'Present' : 'Absent') : (v.passed ? 'Pass' : 'Fail'));
+
+  // Fix blocks for a finding, wired to the ledger by task.js.
+  function fixBoxes(f) {
+    if (!f?.fix) return null;
+    const wrap = el('div', { class: 'rpane-fix' });
+    if (f.fix.edits?.length) {
+      const box = el('div', { class: 'rev-edits' });
+      box.innerHTML = renderMarkdown(f.fix.edits.map((e, j) => '```fix\n' + JSON.stringify({ id: `${f.id}${String.fromCharCode(97 + j)}`, rule: f.dim || 'D16', class: f.sev === 'HARD' ? 'hard' : 'soft', status: 'PROPOSED', owner: f.owner || 'contributor', path: e.path, occurrence: 1, old: e.old, new: e.new }) + '\n```').join('\n\n'), { fixControls: true });
+      box.querySelectorAll('.fixdoc').forEach((b, j) => {
+        const e = f.fix.edits[j];
+        const cref = e.crit && e.crit !== f.crit ? `C${e.crit} · ` : '';
+        b.querySelector('.fixdoc__path')?.remove();
+        b.querySelector('.fixdoc__head')?.prepend(el('span', { class: 'fixdoc__label' }, e.field === 'passed' ? `${cref}${SIDE_LABEL[e.side]} verdict` : e.field === 'justification' ? `${cref}${SIDE_LABEL[e.side]} justification` : `${cref}${e.field}`));
+        if (e.field === 'passed') {
+          b.dataset.verdict = '1'; b.classList.add('fixdoc--verdict');
+          b.querySelector('.fixdoc__old').textContent = e.old === 'true' ? 'pass' : 'fail';
+          b.querySelector('.fixdoc__new').textContent = e.new === 'true' ? 'pass' : 'fail';
+        }
+      });
+      wrap.append(box);
+      onDecorateFixes?.(box);
+    }
+    if (f.fix.manual) wrap.append(el('div', { class: 'rev-manualfix' },
+      el('div', { class: 'rev-manualfix__bar' }, el('span', {}, 'Apply by hand'),
+        el('button', { type: 'button', class: 'btn btn--ghost', onclick: (e) => { navigator.clipboard.writeText(f.fix.manual); e.target.textContent = 'Copied'; setTimeout(() => { e.target.textContent = 'Copy'; }, 1200); } }, 'Copy')),
+      el('pre', {}, f.fix.manual)));
+    return wrap;
+  }
 
   async function buildRubric() {
     const t = await load();
+    let ev = await loadEval();
     const weights = t.checks.find((c) => c.id === 'weights');
     const mix = weights?.mix;
     const cats = [...new Set(t.criteria.map((c) => c.category))].sort();
@@ -849,6 +902,9 @@ export function createRli({ bucket, taskId, onCrit, onSpec, onOpenDoc, onCompare
     const chips = el('div', { class: 'rub-chips' });
     const headRow = el('div', { class: 'rub-head' });
     const count = el('span', { class: 'rub-count' });
+    const pane = el('aside', { class: 'rpane' });
+    const root = el('div', { class: 'rli rli-rubric rub' });
+    const wide = () => root.clientWidth >= 1100; // pane beside the table vs. inline detail
 
     const baseMatch = (c) => {
       const f = rubricFilter;
@@ -858,33 +914,86 @@ export function createRli({ bucket, taskId, onCrit, onSpec, onOpenDoc, onCompare
     };
     const verdictCell = (c, side) => {
       const v = c.verdicts[side];
-      const neg = c.weight < 0;
       if (v.passed == null) return el('div', { class: 'rub-v is-na' }, el('b', {}, '—'), el('span', {}, 'n/a'));
-      const label = neg ? (v.passed ? 'Present' : 'Absent') : (v.passed ? 'Pass' : 'Fail');
-      return el('div', { class: `rub-v ${v.good ? 'is-good' : 'is-bad'}`, title: `${SIDE_LABEL[side]}: ${label}${neg ? ' (penalty — present means the defect is there)' : ''}` },
-        el('b', {}, v.good ? '✓' : '✕'), el('span', {}, label));
+      return el('div', { class: `rub-v ${v.good ? 'is-good' : 'is-bad'}`, title: `${SIDE_LABEL[side]}: ${verdictWord(c, v)}${c.weight < 0 ? ' (penalty — present means the defect is there)' : ''}` },
+        el('b', {}, v.good ? '✓' : '✕'), el('span', {}, verdictWord(c, v)));
     };
+    const evalCell = (e) => el('div', { class: `rub-e is-${e.status}`, title: e.status === 'issue' ? `Eval flags: ${e.note}` : e.status === 'ok' ? `Eval agrees${e.note ? `: ${e.note}` : ''}` : 'Not checked by the eval yet' },
+      el('b', {}, e.status === 'issue' ? '✕' : e.status === 'ok' ? '✓' : '·'), el('span', {}, e.status === 'issue' ? 'Flag' : e.status === 'ok' ? 'OK' : '—'));
+
+    const justList = (c) => SIDE_KEYS.map((s) => {
+      const v = c.verdicts[s];
+      return el('div', { class: `rli-just rub-just${v.good === false ? ' is-bad' : ''}` },
+        el('div', { class: 'rub-just__head' }, el('b', {}, SIDE_LABEL[s]), el('span', { class: 'rub-just__model' }, modelLine(t, s)),
+          el('span', { class: `rub-just__verdict ${v.good === false ? 'is-bad' : ''}` }, v.passed == null ? 'no verdict' : verdictWord(c, v))),
+        el('div', { class: 'rub-just__text' }, v.justification || '(no justification)'));
+    });
+
+    // The eval block — shared by the side pane and the narrow inline detail.
+    const evalBlock = (c) => {
+      const e = evalByCrit(ev, c.n);
+      const busy = el('span', { class: 'rpane-busy', hidden: '' }, 'Checking against the artifacts… (about a minute)');
+      const checkBtn = el('button', { type: 'button', class: 'btn btn--ghost', onclick: async () => {
+        checkBtn.disabled = true; busy.hidden = false;
+        try {
+          ev = await api(`/task/${bucket}/${taskId}/eval/criterion/${c.n}`, { method: 'POST' });
+          evalCache = Promise.resolve(ev);
+          render();
+          select(c.n, { scroll: false });
+        } catch (err) { busy.textContent = `Check failed: ${err.message}`; checkBtn.disabled = false; }
+      } }, e.status === 'unchecked' ? 'Check with AI' : 'Re-check with AI');
+      const ask = onAskAcey ? el('button', { type: 'button', class: 'btn btn--ghost', onclick: () => onAskAcey(`Look at [C${c.n}](crit://C${c.n}) — are the RD, AD1 and AD2 verdicts right, and do the justifications match the artifacts?`) }, 'Ask Acey') : null;
+      const head = e.status === 'issue'
+        ? el('div', { class: 'rpane-status is-issue' }, el('b', {}, '✕ Eval flags this criterion'), e.finding?.dim ? specChip(e.finding.dim) : null)
+        : e.status === 'ok'
+          ? el('div', { class: 'rpane-status is-ok' }, el('b', {}, '✓ Eval agrees with the grading'))
+          : el('div', { class: 'rpane-status' }, el('b', {}, 'Not checked by the eval yet'));
+      const expl = e.explanation ? el('div', { class: 'rpane-expl' }) : null;
+      if (expl) expl.innerHTML = renderMarkdown(e.explanation);
+      return el('section', { class: `rpane-eval is-${e.status}` },
+        head,
+        e.note ? el('p', { class: 'rpane-reason' }, e.note) : null,
+        expl,
+        e.finding?.fix ? el('div', { class: 'rpane-fixhead' }, el('b', {}, 'Suggested fix'), el('span', {}, e.finding.fix.summary || '')) : null,
+        e.status === 'issue' ? fixBoxes(e.finding) : null,
+        el('div', { class: 'rpane-actions' }, checkBtn, ask, busy));
+    };
+
+    const renderPane = (c) => {
+      if (!c) { pane.replaceChildren(el('div', { class: 'rpane-empty' }, el('b', {}, 'Select a criterion'), el('span', {}, 'The eval\'s explanation, the suggested fix and the three justifications show here. ↑ ↓ or j k to move.'))); return; }
+      pane.replaceChildren(
+        el('div', { class: 'rpane-head' },
+          el('div', { class: 'rpane-kicker' }, `C${c.n} · ${c.weight > 0 ? '+' : ''}${c.weight} · ${c.category || '—'}${c.weight < 0 ? ' · penalty' : ''}`),
+          el('h3', {}, c.title),
+          el('div', { class: 'rpane-verdicts' }, SIDE_KEYS.map((s) => {
+            const v = c.verdicts[s];
+            return el('span', { class: v.good === false ? 'is-bad' : '' }, el('b', {}, SIDE_LABEL[s]), ` ${v.passed == null ? '—' : verdictWord(c, v)}`);
+          }))),
+        evalBlock(c),
+        el('div', { class: 'rpane-sub' }, 'Justifications'),
+        el('div', { class: 'rpane-justs' }, justList(c)),
+        onCompare ? el('button', { type: 'button', class: 'link', onclick: () => onCompare() }, 'Compare the deliverables side by side →') : null);
+    };
+
     const row = (c) => {
-      const detail = el('div', { class: 'rub-detail', hidden: '' },
-        SIDE_KEYS.map((s) => {
-          const v = c.verdicts[s];
-          const label = c.weight < 0 ? (v.passed ? 'defect present' : 'defect absent') : (v.passed ? 'passed' : 'failed');
-          return el('div', { class: `rli-just rub-just${v.good === false ? ' is-bad' : ''}` },
-            el('div', { class: 'rub-just__head' },
-              el('b', {}, SIDE_LABEL[s]), el('span', { class: 'rub-just__model' }, modelLine(t, s)),
-              el('span', { class: `rub-just__verdict ${v.good === false ? 'is-bad' : ''}` }, label)),
-            el('div', { class: 'rub-just__text' }, v.justification || '(no justification)'));
-        }),
-        onCompare ? el('div', { class: 'rub-detail__foot' }, el('button', { type: 'button', class: 'link', onclick: () => onCompare() }, 'Compare the deliverables side by side →')) : null);
-      const node = el('div', { class: `rub-row${c.weight < 0 ? ' is-neg' : ''}`, id: `crit-C${c.n}` },
+      const e = evalByCrit(ev, c.n);
+      const detail = el('div', { class: 'rub-detail', hidden: '' });
+      const node = el('div', { class: `rub-row${c.weight < 0 ? ' is-neg' : ''}${rubricSel.n === c.n ? ' is-sel' : ''}`, id: `crit-C${c.n}`, 'data-n': String(c.n) },
         el('button', { type: 'button', class: 'rub-row__main', 'aria-expanded': 'false',
-          onclick: () => { detail.hidden = !detail.hidden; node.classList.toggle('is-open', !detail.hidden); node.firstChild.setAttribute('aria-expanded', String(!detail.hidden)); } },
+          onclick: () => {
+            if (wide()) { select(c.n, { scroll: false }); return; }
+            const open = detail.hidden;
+            if (open && !detail.childElementCount) detail.append(evalBlock(c), ...justList(c));
+            detail.hidden = !open; node.classList.toggle('is-open', open); node.firstChild.setAttribute('aria-expanded', String(open));
+          } },
           el('span', { class: 'rub-n' }, `C${c.n}`),
           el('span', { class: 'rub-crit' },
             el('span', { class: 'rub-title' }, c.title),
-            el('span', { class: 'rub-meta' }, c.category || '—', c.weight < 0 ? el('span', { class: 'rub-pen' }, 'penalty') : null)),
+            el('span', { class: 'rub-meta' }, c.category || '—', c.weight < 0 ? el('span', { class: 'rub-pen' }, 'penalty') : null,
+              e.status === 'issue' ? el('span', { class: 'rub-flag' }, `✕ ${e.note}`) : null)),
           el('span', { class: `rub-w${c.weight < 0 ? ' is-neg' : ''}` }, c.weight > 0 ? `+${c.weight}` : String(c.weight)),
-          ...SIDE_KEYS.map((s) => verdictCell(c, s))),
+          ...SIDE_KEYS.map((s) => verdictCell(c, s)),
+          evalCell(e)),
         detail);
       return node;
     };
@@ -897,21 +1006,33 @@ export function createRli({ bucket, taskId, onCrit, onSpec, onOpenDoc, onCompare
           label, el('i', {}, on ? (rubricSort.dir > 0 ? '▲' : '▼') : ''));
       };
       headRow.replaceChildren(col('n', '#'), col('title', 'Criterion'), col('weight', 'Weight', 'is-num'),
-        ...SIDE_KEYS.map((s) => col(s, SIDE_LABEL[s], 'is-side', `Sort by ${SIDE_LABEL[s]} verdict — failures first (${modelLine(t, s)})`)));
+        ...SIDE_KEYS.map((s) => col(s, SIDE_LABEL[s], 'is-side', `Sort by ${SIDE_LABEL[s]} verdict — failures first (${modelLine(t, s)})`)),
+        col('eval', 'Eval', 'is-side', 'Sort by the AI eval — flags first, then unchecked'));
     };
 
+    let shown = [];
     const render = () => {
       const base = t.criteria.filter(baseMatch);
       chips.replaceChildren(...FILTERS.map(([key, label, fn]) => el('button', {
         type: 'button', class: `rub-chip${rubricFilter.only === key ? ' is-on' : ''}`,
         onclick: () => { rubricFilter.only = key; render(); },
-      }, label, el('span', {}, String(base.filter(fn).length)))));
+      }, label, el('span', {}, String(base.filter((c) => fn(c, ev)).length)))));
       const fn = FILTERS.find(([k]) => k === rubricFilter.only)?.[2] || (() => true);
       const get = SORTERS[rubricSort.key];
-      const shown = base.filter(fn).sort((x, y) => { const a = get(x), b = get(y); return (a < b ? -1 : a > b ? 1 : x.n - y.n) * (a === b ? 1 : rubricSort.dir); });
+      shown = base.filter((c) => fn(c, ev)).sort((x, y) => { const a = get(x, ev), b = get(y, ev); return a === b ? x.n - y.n : (a < b ? -1 : 1) * rubricSort.dir; });
       count.textContent = `${shown.length} of ${t.criteria.length}`;
       sortHead();
       body.replaceChildren(...(shown.length ? shown.map(row) : [el('div', { class: 'rub-empty' }, 'No criteria match.')]));
+      renderPane(t.criteria.find((c) => c.n === rubricSel.n) || null);
+    };
+    const select = (n, { scroll = true } = {}) => {
+      rubricSel.n = n;
+      body.querySelectorAll('.rub-row.is-sel').forEach((r) => r.classList.remove('is-sel'));
+      const r = document.getElementById(`crit-C${n}`);
+      r?.classList.add('is-sel');
+      if (scroll) r?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+      renderPane(t.criteria.find((c) => c.n === n) || null);
+      pane.scrollTop = 0;
     };
 
     const search = el('input', { class: 'input rli-search', type: 'search', placeholder: 'Search criteria…', oninput: (e) => { rubricFilter.q = e.target.value; render(); } });
@@ -921,13 +1042,30 @@ export function createRli({ bucket, taskId, onCrit, onSpec, onOpenDoc, onCompare
     catSel.value = rubricFilter.cat;
     render();
 
-    return el('div', { class: 'rli rli-rubric rub' },
+    const onKeys = (e) => {
+      if (!root.isConnected) return document.removeEventListener('keydown', onKeys);
+      if (!wide() || e.target.closest?.('input, textarea, select, [contenteditable]') || e.metaKey || e.ctrlKey || e.altKey || document.querySelector('.rli-lb')) return;
+      const step = ['ArrowDown', 'j'].includes(e.key) ? 1 : ['ArrowUp', 'k'].includes(e.key) ? -1 : 0;
+      if (!step || !shown.length) return;
+      e.preventDefault();
+      const i = shown.findIndex((c) => c.n === rubricSel.n);
+      select(shown[Math.max(0, Math.min(shown.length - 1, (i < 0 ? (step > 0 ? -1 : shown.length) : i) + step))].n);
+    };
+    document.addEventListener('keydown', onKeys);
+    root.selectCrit = (n) => { if (wide()) { select(n); return true; } return false; };
+
+    root.append(
       mix ? mixBar(mix, weights) : null,
       el('div', { class: 'rub-tools' }, chips, el('span', { class: 'spacer' }), search, catSel, count),
-      el('div', { class: 'rub-table' }, headRow, body),
-      el('p', { class: 'rub-foot' }, 'Penalty criteria (negative weight): "Present" means the defect is there and its weight is deducted — that is what the record\'s "passed: true" means on a penalty, and it matches the printed scores.'),
+      el('div', { class: 'rub-split' },
+        el('div', { class: 'rub-table' }, headRow, body),
+        pane),
+      el('p', { class: 'rub-foot' }, 'Penalty criteria (negative weight): "Present" means the defect is there and its weight is deducted — that is what the record\'s "passed: true" means on a penalty, and it matches the printed scores. Eval: ✕ the AI eval flags it · ✓ checked and agrees · — not checked yet (select it and press "Check with AI").'),
     );
+    rubricRoot = root;
+    return root;
   }
+  let rubricRoot = null;
 
   function mixBar(mix, check) {
     const segs = [['format', 'Format', mix.format, 5], ['brief', 'Brief', mix.brief, 30], ['quality', 'Quality', mix.quality, 65], ...(mix.other ? [['other', 'Other', mix.other, 0]] : [])];
@@ -1053,13 +1191,17 @@ export function createRli({ bucket, taskId, onCrit, onSpec, onOpenDoc, onCompare
   function flashCrit(n, side = null) {
     const row = document.getElementById(`crit-C${n}`);
     if (!row) return false;
-    row.querySelector('.rub-detail')?.removeAttribute('hidden');
-    row.classList.add('is-open', 'flash');
-    if (side) {
-      const idx = { rd: 0, golden: 0, ad1: 1, ad2: 2 }[side];
-      const card = row.querySelectorAll('.rub-just')[idx];
-      if (card) { card.classList.add('flash'); setTimeout(() => card.classList.remove('flash'), 2000); }
+    if (rubricRoot?.isConnected && rubricRoot.selectCrit?.(n)) {
+      row.classList.add('flash'); setTimeout(() => row.classList.remove('flash'), 1600);
+      if (side) {
+        const idx = { rd: 0, golden: 0, ad1: 1, ad2: 2 }[side];
+        const card = document.querySelectorAll('.rpane-justs .rub-just')[idx];
+        if (card) { card.classList.add('flash'); setTimeout(() => card.classList.remove('flash'), 2000); }
+      }
+      return true;
     }
+    row.querySelector('.rub-row__main')?.click();
+    row.classList.add('flash');
     row.scrollIntoView({ block: 'center', behavior: 'smooth' });
     setTimeout(() => row.classList.remove('flash'), 1600);
     return true;
@@ -1084,5 +1226,5 @@ export function createRli({ bucket, taskId, onCrit, onSpec, onOpenDoc, onCompare
   }
 
 
-  return { load, summaryBar, openArtifact, flashPref, buildBrief, buildDeliverables, buildRubric, buildPreference, checksPanel, flashCrit, setDelivMode: (m) => { delivMode = m; }, resetFilter: () => { rubricFilter.q = ''; rubricFilter.cat = ''; rubricFilter.only = ''; rubricSort.key = 'n'; rubricSort.dir = 1; } };
+  return { load, summaryBar, openArtifact, flashPref, buildBrief, buildDeliverables, buildRubric, buildPreference, checksPanel, flashCrit, setDelivMode: (m) => { delivMode = m; }, resetFilter: () => { rubricFilter.q = ''; rubricFilter.cat = ''; rubricFilter.only = ''; rubricSort.key = 'n'; rubricSort.dir = 1; }, refreshEval: () => { evalCache = null; } };
 }

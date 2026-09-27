@@ -19,7 +19,7 @@ import { TOOL_DEFS, makeExecutor } from '../tools.js';
 import { generateDoc, taskContext, CITATION_RULES } from '../docgen.js';
 import { QUALITY_CANON, getRubric, saveRubricCsv } from '../spec.js';
 import { readRliIn, isRliTask } from '../rli.js';
-import { readEval } from '../rli_docgen.js';
+import { readEval, checkCriterion } from '../rli_docgen.js';
 import { RLI_CHAT_PROMPT, RLI_CITATION_RULES, RLI_TOOL_DEFS, rliCanon, rliTaskContext, makeRliExecutor } from '../rli_acey.js';
 import { recordUsage, readUsage, usageCsv } from '../usage.js';
 import { enqueueDocs, jobSummary, statusFor } from '../jobs.js';
@@ -357,6 +357,18 @@ api.get('/task/:bucket/:id/files', wrap(async (req, res) => res.json(listFiles(r
 
 // RLI: the normalized record + deterministic spec checks for the task page.
 api.get('/task/:bucket/:id/rli', wrap(async (req, res) => res.json(readRliIn(taskDir(req.params.bucket, req.params.id)))));
+
+// RLI: check ONE criterion with the AI on demand (Rubric tab). Writes the
+// result into eval.json and re-renders the docs, so a fix it proposes lands in
+// the same fix ledger as the full eval's.
+api.post('/task/:bucket/:id/eval/criterion/:n', wrap(async (req, res) => {
+  const dir = taskDir(req.params.bucket, req.params.id);
+  if (!isRliTask(dir)) throw httpError(400, 'not an RLI task');
+  const acc = { prompt_tokens: 0, completion_tokens: 0 };
+  const ev = await checkCriterion(dir, Number(req.params.n), { onUsage: (u) => { acc.prompt_tokens += u.prompt_tokens || 0; acc.completion_tokens += u.completion_tokens || 0; } });
+  recordUsage({ user: req.user.username, taskId: req.params.id, kind: 'eval:criterion', model: config.litellm.model, usage: acc, text: `Checked C${req.params.n}` });
+  res.json(ev);
+}));
 
 // RLI: the structured eval both the Review and Remediation tabs render from.
 // 404 = no structured eval yet (the tabs fall back to the markdown docs).

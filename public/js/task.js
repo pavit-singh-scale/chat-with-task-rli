@@ -204,6 +204,8 @@ const rli = createRli({
   bucket, taskId,
   onCrit: (n, side) => openCrit(n, side),
   onSlot: (id) => { if (activeTab === 'deliverables') syncUrl({ slot: id }); },
+  onDecorateFixes: (root) => decorateFixDocs(root),
+  onAskAcey: (text) => { setChatCollapsed(false); chatText.value = text; chatText.focus(); },
   onPair: (pair) => syncUrl({ pair }),
   onSpec: (key) => showQcSpec(key),
   onCompare: () => { rli.setDelivMode('artifact'); viewCache.delete('rli-deliverables'); return showRliView('deliverables'); },
@@ -549,6 +551,7 @@ async function watchDoc(doc) {
     clearInterval(docWatch); docWatch = null;
     finished = true;
     if (s.state === 'error') { say(`Generation failed: ${s.error}`, 'error-line'); return; }
+    rli.refreshEval?.(); viewCache.delete('rli-rubric'); // per-criterion eval marks come from eval.json
     // The RLI eval files the task under its verdict — follow it to the new URL.
     if (s.movedTo && s.movedTo !== bucket) {
       say(`Eval filed this task as ${SEV_LABEL[s.movedTo] || s.movedTo} — reloading…`);

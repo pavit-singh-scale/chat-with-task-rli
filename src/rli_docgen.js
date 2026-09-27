@@ -19,7 +19,7 @@ import { RLI_TOOL_DEFS, makeRliExecutor, rliCanon, rliTaskContext, RLI_CITATION_
 import { readRecord } from './rli.js';
 import { RLI_SPEC } from './spec.js';
 
-export const CAPS = { headline: 15, evidence: 45, fixSummary: 14, manualNote: 15, escalate: 30, verdict: 25, maxFindings: 12 };
+export const CAPS = { headline: 15, evidence: 45, fixSummary: 14, manualNote: 15, escalate: 30, verdict: 25, maxFindings: 12, checkNote: 14 };
 const SEVS = ['HARD', 'SOFT', 'INFO'];
 const SIDE_KEY = { rd: 'golden', golden: 'golden', ad1: 'ad1', ad2: 'ad2' };
 const SIDE_LABEL = { golden: 'RD', ad1: 'AD1', ad2: 'AD2' };
@@ -87,8 +87,13 @@ OUTPUT: ONLY one JSON object, no prose, no code fence. Shape:
   ],
   "manual_checks": [ "<≤${CAPS.manualNote} words each — what only a human can check, and where>" ],
   "escalate": null | "<≤${CAPS.escalate} words — only if edits can't salvage the task (brief/inputs insufficient, golden below professional grade, suspected AI-generated golden)>",
-  "verified": { "criteria": <n criteria you checked against artifacts>, "artifacts": <n files you opened> }
+  "verified": { "criteria": <n criteria you checked against artifacts>, "artifacts": <n files you opened> },
+  "checked": [ { "crit": 12, "ok": true, "note": "<≤${CAPS.checkNote} words — what you confirmed, e.g. 'All three verdicts match the renders'>" } ]
 }
+
+"checked" lists EVERY criterion you actually verified (verdicts + justifications against the artifacts
+or the record), ok=false for ones with a problem — each of those must also have a finding with that crit.
+It drives the per-criterion eval marks on the Rubric tab, so don't list criteria you only skimmed.
 
 Rules for findings:
 - At most ${CAPS.maxFindings}. One problem each, most severe first. A wrong verdict is ONE finding per
@@ -209,7 +214,21 @@ export function validateEval(raw, dir) {
     manual_checks: manual,
     escalate: raw.escalate ? String(raw.escalate).trim() : null,
     verified: { criteria: Number(raw.verified?.criteria) || 0, artifacts: Number(raw.verified?.artifacts) || 0 },
+    criteria: {},
   };
+  // Per-criterion coverage: crit → { ok, note, source }. A finding on a
+  // criterion always wins over an "ok" the model also listed for it.
+  for (const c of Array.isArray(raw.checked) ? raw.checked : []) {
+    const n = Number(c?.crit);
+    if (!(n >= 1 && n <= nCrit)) continue;
+    const note = String(c.note || '').trim();
+    if (words(note) > CAPS.checkNote + 6) errors.push(`checked C${n} note is ${words(note)} words (max ${CAPS.checkNote})`);
+    ev.criteria[n] = { ok: c.ok !== false, note, source: 'eval' };
+  }
+  for (const f of out) {
+    const crits = new Set([f.crit, ...(f.fix?.edits || []).map((e) => e.crit)].filter((x) => x >= 1 && x <= nCrit).map(Number));
+    for (const n of crits) ev.criteria[n] = { ok: false, note: f.headline, finding: f.id, source: 'eval' };
+  }
   return { ev, errors };
 }
 
@@ -251,6 +270,64 @@ export async function runRliEval(dir, { onEvent, onUsage, id = path.basename(dir
   // Whatever is still wrong after the repair stays visible rather than dropped.
   ev.validation = errors;
   fs.writeFileSync(path.join(dir, 'eval.json'), JSON.stringify(ev, null, 1));
+  return ev;
+}
+
+// ------------------------------------------------------------ one criterion, on demand
+
+const CHECK_PROMPT = `
+You are the QC auditor for the RLI queue, checking ONE rubric criterion of one task: are the RD, AD1
+and AD2 verdicts right, and does each justification describe what is actually in that deliverable?
+Read the criterion with get_criteria, open the relevant artifacts with view_artifact / probe_media,
+and read the brief (in context) when the criterion's grounding is in question.
+
+OUTPUT: ONLY one JSON object, no prose:
+{
+  "ok": true | false,
+  "sev": "HARD" | "SOFT" | "INFO",          // only when ok=false
+  "dim": "D17",                             // the deciding spec dimension, when ok=false
+  "side": "rd" | "ad1" | "ad2" | null,      // the side that is wrong, if one
+  "reason": "<≤${CAPS.headline} words — the problem, or what you confirmed when ok>",
+  "explanation": "<≤${CAPS.evidence} words — what you saw or measured, with citation links>",
+  "fix": null | { "summary": "<≤${CAPS.fixSummary} words>", "edits": [ { "crit": <n>, "side": "ad2", "field": "passed"|"justification"|"weight"|"title", "old": "...", "new": "..." } ], "manual": null | "<text>" }
+}
+Edits follow the same rules as the full eval: "old" is copied exactly from the record; a verdict
+flip usually needs a justification rewrite beside it. Be conservative: ok=true unless you can show
+the problem. If you cannot see what the criterion needs (3D-only, motion, voice), say so in the
+reason and set ok=true with the explanation starting "Not verifiable here:".
+
+${EVIDENCE}
+`.trim();
+
+export async function checkCriterion(dir, n, { onEvent, onUsage } = {}) {
+  const rec = readRecord(dir);
+  const nCrit = rec.rubric_eval?.criteria?.length || 0;
+  if (!(n >= 1 && n <= nCrit)) throw new Error(`no criterion C${n}`);
+  const system = [CHECK_PROMPT, rliCanon(), RLI_CITATION_RULES, rliTaskContext(dir)].join('\n\n');
+  const messages = [{ role: 'system', content: system }, { role: 'user', content: `Check criterion C${n}. Reply with the JSON object only.` }];
+  const { final } = await runAgentLoop({ messages, tools: RLI_TOOL_DEFS, executor: makeRliExecutor(dir), onEvent, maxSteps: 14, onUsage });
+  const raw = extractJson(final);
+  const ev = readEval(dir) || { version: 1, task_id: rec.task_id, generated_at: new Date().toISOString(), bucket: 'PASS', verdict: '', findings: [], manual_checks: [], escalate: null, verified: { criteria: 0, artifacts: 0 }, criteria: {} };
+  ev.criteria ||= {};
+  // Re-checking replaces this criterion's previous on-demand finding.
+  const prev = ev.criteria[n]?.finding && ev.criteria[n]?.source === 'check' ? ev.criteria[n].finding : null;
+  if (prev) ev.findings = ev.findings.filter((f) => f.id !== prev);
+  if (raw.ok !== false) {
+    ev.criteria[n] = { ok: true, note: String(raw.reason || '').trim(), explanation: String(raw.explanation || '').trim(), source: 'check', at: new Date().toISOString() };
+  } else {
+    // Validate as a one-finding eval so edits resolve against the live record.
+    const { ev: one, errors } = validateEval({ verdict: '', findings: [{ sev: raw.sev || 'SOFT', dim: raw.dim || 'D17', crit: n, side: raw.side || null, headline: raw.reason, evidence: raw.explanation, fix: raw.fix }] }, dir);
+    const f = one.findings[0];
+    const nextId = `F${Math.max(0, ...ev.findings.map((x) => Number(String(x.id).slice(1)) || 0)) + 1}`;
+    f.id = nextId;
+    if (errors.length) f.validation = errors;
+    ev.findings.push(f);
+    ev.criteria[n] = { ok: false, note: f.headline, explanation: f.evidence, finding: f.id, source: 'check', at: new Date().toISOString() };
+  }
+  ev.bucket = ev.findings.some((f) => f.sev === 'HARD') ? 'HARD_FAIL' : ev.findings.some((f) => f.sev === 'SOFT') ? 'SOFT_FAIL' : 'PASS';
+  fs.writeFileSync(path.join(dir, 'eval.json'), JSON.stringify(ev, null, 1));
+  fs.writeFileSync(path.join(dir, 'review.md'), renderReviewMd(ev));
+  fs.writeFileSync(path.join(dir, 'remediation.md'), renderRemediationMd(ev));
   return ev;
 }
 

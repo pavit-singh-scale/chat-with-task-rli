@@ -4230,3 +4230,75 @@ body:has(.acey-fab:not([hidden])) main { padding-bottom: 96px; }
 }
 /* Deliverables: one view — the header is just the deliverable's name. */
 .rli-deliv .art-head__t span { font-size: 13px; }
+
+/* ---------- RLI Rubric v3 (0927): eval column + detail pane ---------- */
+.rub { max-width: none; }
+.rub-table { --rub-cols: 56px minmax(0, 1fr) 64px repeat(3, 64px) 60px; min-width: 0; }
+.rub-split { display: grid; grid-template-columns: minmax(0, 1fr) 400px; gap: 20px; align-items: start; }
+.rub-row.is-sel > .rub-row__main { background: var(--surface-active); box-shadow: inset 3px 0 var(--accent); }
+.rub-e { display: grid; justify-items: center; gap: 1px; }
+.rub-e b { font-size: 16px; line-height: 1; }
+.rub-e span { font-size: 12px; }
+.rub-e.is-ok b, .rub-e.is-ok span { color: var(--text-3); }
+.rub-e.is-issue b, .rub-e.is-issue span { color: var(--fail); }
+.rub-e.is-unchecked b, .rub-e.is-unchecked span { color: var(--text-faint); }
+.rub-flag { color: var(--fail); font-weight: 500; }
+.rpane { position: sticky; top: 0; max-height: calc(100vh - 230px); overflow: auto; padding: 16px 18px; border: 1px solid var(--border); border-radius: var(--r-card); background: var(--surface); display: grid; gap: 14px; align-content: start; }
+.rpane-empty { display: grid; gap: 6px; padding: 30px 6px; text-align: center; color: var(--text-3); font-size: 14px; line-height: 1.5; }
+.rpane-empty b { color: var(--text-2); font-size: 15px; }
+.rpane-kicker { font-size: 12.5px; color: var(--text-3); font-family: var(--mono); }
+.rpane-head h3 { margin: 4px 0 8px; font-size: 16px; font-weight: 600; line-height: 1.45; }
+.rpane-verdicts { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 13px; color: var(--text-3); }
+.rpane-verdicts b { color: var(--text-2); }
+.rpane-verdicts .is-bad, .rpane-verdicts .is-bad b { color: var(--fail); }
+.rpane-eval { display: grid; gap: 8px; padding: 12px 14px; border-radius: var(--r-control); background: var(--bg-sunken); border: 1px solid var(--border); }
+.rpane-eval.is-issue { border-color: var(--fail-border); }
+.rpane-status { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--text-3); }
+.rpane-status.is-issue b { color: var(--fail); }
+.rpane-status.is-ok b { color: var(--text-2); }
+.rpane-reason { margin: 0; font-size: 15px; font-weight: 600; line-height: 1.45; }
+.rpane-expl { font-size: 14px; line-height: 1.55; color: var(--text-2); }
+.rpane-expl p { margin: 0; }
+.rpane-fixhead { display: grid; gap: 2px; margin-top: 2px; font-size: 13px; }
+.rpane-fixhead b { font-size: 12px; letter-spacing: .06em; text-transform: uppercase; color: var(--text-3); }
+.rpane-fixhead span { font-size: 14px; }
+.rpane-fix .rev-edits, .rpane-fix .rev-manualfix { margin-left: 0; }
+.rpane-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 2px; }
+.rpane-busy { font-size: 13px; color: var(--text-3); }
+.rpane-sub { font-size: 12px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--text-3); }
+.rpane-justs { display: grid; gap: 8px; }
+.rpane .link { justify-self: start; }
+/* Narrow: no pane — rows expand inline (eval block + justifications). */
+.rub { container-type: inline-size; }
+@container (max-width: 1099px) {
+  .rub-split { grid-template-columns: minmax(0, 1fr); }
+  .rpane { display: none; }
+  .rub-detail { grid-template-columns: minmax(0, 1fr); padding: 4px 12px 16px; }
+}
+@container (max-width: 900px) {
+  .rub-table { --rub-cols: 40px minmax(0, 1fr) 40px repeat(3, 46px) 44px; }
+}
+/* In the 400px pane a verdict flip gets two lines: label + pass → fail, then the buttons. */
+.rpane .rev-edits .fixdoc--verdict { grid-template-columns: auto auto 1fr; }
+.rpane .rev-edits .fixdoc--verdict .fixdoc__head { grid-column: 1 / -1; grid-row: 1; }
+.rpane .rev-edits .fixdoc--verdict .fixdoc__old { grid-column: 1; grid-row: 2; }
+.rpane .rev-edits .fixdoc--verdict .fixdoc__new { grid-column: 2; grid-row: 2; }
+.rpane .rev-edits .fixdoc--verdict .fixdoc__act { grid-column: 3; grid-row: 2; justify-self: end; }
+.rpane .rev-edits .fixdoc:not(.fixdoc--verdict) .fixdoc__act { grid-column: 1 / -1; grid-row: auto; justify-self: start; }
+
+/* ---------- RLI slim summary line (0927) ---------- */
+.strip.strip--rli { padding: 8px 20px; align-items: center; gap: 16px; }
+.sb { flex: 1; min-width: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 24px; }
+.sb-meta { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 14px; font-size: 13px; color: var(--text-3); }
+.sb-meta b { font-size: 12px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--text-2); }
+.sb-meta > * { white-space: nowrap; }
+.sb-warn { color: var(--fail); }
+.sb-stats { display: flex; flex-wrap: wrap; gap: 4px 22px; margin-left: auto; }
+.sb-stat { display: inline-flex; align-items: baseline; gap: 6px; white-space: nowrap; cursor: default; }
+.sb-stat__k { font-size: 12px; font-weight: 700; letter-spacing: .05em; color: var(--text-3); }
+.sb-stat b { font-size: 17px; font-weight: 650; font-variant-numeric: tabular-nums; }
+.sb-stat__g { font-size: 12px; color: var(--text-3); font-family: var(--mono); }
+.sb-stat.is-bad b, .sb-stat.is-bad .sb-stat__g { color: var(--fail); }
+.sb-stat.is-warn b { color: var(--warn); }
+.strip--rli .rli-sum__next { font-size: 13px; }
+.sb b { font-family: var(--font); }
