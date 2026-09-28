@@ -314,6 +314,7 @@ export function createRli({ bucket, taskId, onCrit, onSpec, onOpenDoc, onCompare
   // in the lightbox; the brief's input files live on the Brief tab.
   let delivMode = 'artifact'; // kept for callers; there is only one view now
   const delivState = { slot: 0 };
+  let delivKeys = null, rubricKeys = null;
   const KIND_NAME = { model3d: '3D model', cad: 'CAD / scene file', image: 'Image', video: 'Video', audio: 'Audio', pdf: 'PDF', design: 'Design file', sheet: 'Spreadsheet', doc: 'Document', text: 'Text', archive: 'Archive', other: 'File' };
   const KIND_RANK = ['model3d', 'cad', 'image', 'video', 'audio', 'pdf', 'design', 'sheet', 'doc', 'text', 'archive', 'other'];
   const normName = (n) => n.toLowerCase().replace(/\.[^.]+$/, '').replace(/[\s_\-.]+/g, '').replace(/v?\d{3}$|final$/g, '');
@@ -405,20 +406,28 @@ export function createRli({ bucket, taskId, onCrit, onSpec, onOpenDoc, onCompare
           el('span', { class: 'art-slot__marks' }, sides.map((s) => { const m = slotMark(sl.files[s]); return el('i', { class: m.cls, title: `${SIDE_LABEL[s]}: ${m.t}` }, m.g); })))));
       requestAnimationFrame(() => rail.querySelector('.art-slot.is-on')?.scrollIntoView({ block: 'nearest', inline: 'nearest' }));
       onSlot?.(slot.id);
+      const go = (d) => { delivState.slot = Math.max(0, Math.min(slots.length - 1, delivState.slot + d)); render(); };
       const head = el('div', { class: 'art-head' },
+        el('div', { class: 'art-nav' },
+          el('button', { type: 'button', class: 'art-nav__b', title: 'Previous deliverable (←)', disabled: delivState.slot === 0 ? '' : null, onclick: () => go(-1) }, '‹'),
+          el('button', { type: 'button', class: 'art-nav__b', title: 'Next deliverable (→)', disabled: delivState.slot === slots.length - 1 ? '' : null, onclick: () => go(1) }, '›')),
         el('div', { class: 'art-head__t' }, el('h3', {}, slot.label),
           el('span', {}, `${delivState.slot + 1} of ${slots.length} · ← → to step · click a file name to open it full size`)));
       main.replaceChildren(head, el('div', { class: 'art-panes' }, sides.map((s) => pane(s, slot.files[s]))));
     };
     render();
     const root = el('div', { class: 'art' }, rail, main);
+    // One live handler per view, replaced on rebuild. It must NOT unhook itself
+    // while the view is merely hidden: the view is cached and comes back.
+    if (delivKeys) document.removeEventListener('keydown', delivKeys);
     const onKeys = (e) => {
-      if (!root.isConnected) return document.removeEventListener('keydown', onKeys);
+      if (!root.isConnected) return;
       if (lb || e.target.closest?.('input, textarea, select, [contenteditable]') || e.metaKey || e.ctrlKey || e.altKey) return;
       if (e.key === 'ArrowRight' || e.key === 'ArrowDown') { delivState.slot = Math.min(slots.length - 1, delivState.slot + 1); render(); e.preventDefault(); }
       else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') { delivState.slot = Math.max(0, delivState.slot - 1); render(); e.preventDefault(); }
     };
     document.addEventListener('keydown', onKeys);
+    delivKeys = onKeys;
     root.selectSlot = (id) => { const i = slots.findIndex((x) => x.id === id); if (i >= 0) { delivState.slot = i; render(); } return i >= 0; };
     root.slotId = () => slots[delivState.slot]?.id;
     return root;
@@ -1048,8 +1057,9 @@ export function createRli({ bucket, taskId, onCrit, onSpec, onOpenDoc, onCompare
     catSel.value = rubricFilter.cat;
     render();
 
+    if (rubricKeys) document.removeEventListener('keydown', rubricKeys);
     const onKeys = (e) => {
-      if (!root.isConnected) return document.removeEventListener('keydown', onKeys);
+      if (!root.isConnected) return;
       if (!wide() || e.target.closest?.('input, textarea, select, [contenteditable]') || e.metaKey || e.ctrlKey || e.altKey || document.querySelector('.rli-lb')) return;
       const step = ['ArrowDown', 'j'].includes(e.key) ? 1 : ['ArrowUp', 'k'].includes(e.key) ? -1 : 0;
       if (!step || !shown.length) return;
@@ -1058,6 +1068,7 @@ export function createRli({ bucket, taskId, onCrit, onSpec, onOpenDoc, onCompare
       select(shown[Math.max(0, Math.min(shown.length - 1, (i < 0 ? (step > 0 ? -1 : shown.length) : i) + step))].n);
     };
     document.addEventListener('keydown', onKeys);
+    rubricKeys = onKeys;
     root.selectCrit = (n) => { if (wide()) { select(n); return true; } return false; };
 
     root.append(

@@ -4326,3 +4326,8 @@ body:has(.acey-fab:not([hidden])) main { padding-bottom: 96px; }
 .rli-fpill { display: inline; padding: 0; margin: 0; border: 0; border-radius: 0; background: none; font: inherit; color: var(--accent); text-decoration: underline; text-decoration-color: color-mix(in srgb, var(--accent) 45%, transparent); text-underline-offset: 3px; cursor: pointer; overflow-wrap: anywhere; }
 .rli-fpill:hover { background: none; text-decoration-color: var(--accent); }
 .rli-fpill.is-missing { background: none; border: 0; color: inherit; text-decoration: underline wavy var(--fail); text-underline-offset: 4px; cursor: help; }
+.art-head { flex-wrap: nowrap; }
+.art-nav { display: flex; gap: 4px; }
+.art-nav__b { width: 34px; height: 34px; border-radius: var(--r-control); border: 1px solid var(--border); background: var(--surface); color: var(--text); font-size: 20px; line-height: 1; cursor: pointer; }
+.art-nav__b:hover:not([disabled]) { border-color: var(--border-strong); background: var(--surface-hover); }
+.art-nav__b[disabled] { opacity: .35; cursor: default; }

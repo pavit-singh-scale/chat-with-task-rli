@@ -304,6 +304,9 @@ export function escapeHtml(s) {
 export function el(tag, attrs = {}, ...children) {
   const node = document.createElement(tag);
   for (const [k, v] of Object.entries(attrs)) {
+    // null/undefined/false = "no attribute". Writing them would set disabled="null"
+    // or hidden="null", and both attributes act on presence alone.
+    if (v == null || v === false) continue;
     if (k === 'class') node.className = v;
     else if (k.startsWith('on')) node.addEventListener(k.slice(2), v);
     else node.setAttribute(k, v);
