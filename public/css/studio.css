@@ -4331,3 +4331,10 @@ body:has(.acey-fab:not([hidden])) main { padding-bottom: 96px; }
 .art-nav__b { width: 34px; height: 34px; border-radius: var(--r-control); border: 1px solid var(--border); background: var(--surface); color: var(--text); font-size: 20px; line-height: 1; cursor: pointer; }
 .art-nav__b:hover:not([disabled]) { border-color: var(--border-strong); background: var(--surface-hover); }
 .art-nav__b[disabled] { opacity: .35; cursor: default; }
+
+/* Rubric failsafe: an eval with unmarked criteria is incomplete, loudly. */
+.rub-cov { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; margin: 10px 0 2px; padding: 10px 14px; border-radius: var(--r-card); font-size: 14px; }
+.rub-cov:empty { display: none; }
+.rub-cov.is-gap { border: 1px solid color-mix(in srgb, var(--warn) 55%, transparent); background: var(--warn-bg); }
+.rub-cov.is-gap b { color: var(--warn); }
+.rub-cov.is-none { border: 1px dashed var(--border-strong); color: var(--text-3); }

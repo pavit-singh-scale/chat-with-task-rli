@@ -1,7 +1,7 @@
 import { generateDocForDir } from './docgen.js';
 import { taskDir, moveTask } from './workspace.js';
 import { isRliTask } from './rli.js';
-import { proposedBucket } from './rli_docgen.js';
+import { proposedBucket, ensureCoverage } from './rli_docgen.js';
 import fs from 'node:fs';
 import path from 'node:path';
 import { recordUsage } from './usage.js';
@@ -42,14 +42,27 @@ async function runJob({ bucket, id, whichList, user }) {
   status.set(k, { state: 'running', which: whichList, current: whichList[0], ts: Date.now() });
   try {
     const dir = taskDir(bucket, id);
+    let missing = [];
     for (const w of whichList) {
       status.get(k).current = w;
       const acc = { prompt_tokens: 0, completion_tokens: 0 };
-      await generateDocForDir(dir, w, {
-        id,
-        onUsage: (u) => { acc.prompt_tokens += u.prompt_tokens || 0; acc.completion_tokens += u.completion_tokens || 0; },
-      });
-      recordUsage({ user: user || '(batch)', taskId: id, kind: `docgen:${w}`, model: config.litellm.model, usage: acc, text: `Generated ${w}.md` });
+      const onUsage = (u) => { acc.prompt_tokens += u.prompt_tokens || 0; acc.completion_tokens += u.completion_tokens || 0; };
+      if (w !== 'coverage') {
+        await generateDocForDir(dir, w, { id, onUsage });
+        recordUsage({ user: user || '(batch)', taskId: id, kind: `docgen:${w}`, model: config.litellm.model, usage: acc, text: `Generated ${w}.md` });
+      }
+      // RLI: no missed rubric — after the full eval (or on request), every
+      // criterion the eval didn't cover gets its own check.
+      if (isRliTask(dir) && (w === 'review' || w === 'coverage')) {
+        status.get(k).current = 'coverage';
+        const cacc = { prompt_tokens: 0, completion_tokens: 0 };
+        const cov = await ensureCoverage(dir, {
+          onUsage: (u) => { cacc.prompt_tokens += u.prompt_tokens || 0; cacc.completion_tokens += u.completion_tokens || 0; },
+          onProgress: (p) => { status.get(k).progress = `checking criteria · ${p.done + 1} of ${p.total}${p.attempt ? ' (retry)' : ''}`; },
+        });
+        missing = cov.missing;
+        recordUsage({ user: user || '(batch)', taskId: id, kind: 'eval:criterion', model: config.litellm.model, usage: cacc, text: 'Coverage checks' });
+      }
     }
     // RLI: the review's proposed bucket IS the eval's severity call, so the task
     // is filed there — unless a reviewer has already put a decision on it.
@@ -60,7 +73,7 @@ async function runJob({ bucket, id, whichList, user }) {
       try { decided = !!JSON.parse(fs.readFileSync(path.join(dir, '_studio.json'), 'utf8')).verdict; } catch { /* no state */ }
       if (target && target !== bucket && !decided) { moveTask(bucket, id, target); movedTo = target; }
     }
-    status.set(k, { state: 'done', which: whichList, movedTo, ts: Date.now() });
+    status.set(k, { state: 'done', which: whichList, movedTo, missing, ts: Date.now() });
     if (movedTo) status.set(`${movedTo}/${id}`, { state: 'done', which: whichList, movedFrom: bucket, ts: Date.now() });
   } catch (e) {
     status.set(k, { state: 'error', which: whichList, error: e.message, ts: Date.now() });

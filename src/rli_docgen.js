@@ -405,6 +405,31 @@ export async function checkCriterion(dir, n, { onEvent, onUsage } = {}) {
   return ev;
 }
 
+// No missed rubric: check every criterion the full eval didn't cover, one at a
+// time (they share eval.json), retrying failures. Returns what is still
+// unmarked — callers treat a non-empty list as an incomplete eval.
+export function uncoveredCriteria(dir) {
+  const n = readRecord(dir).rubric_eval?.criteria?.length || 0;
+  const ev = readEval(dir) || {};
+  const out = [];
+  for (let i = 1; i <= n; i++) if (!ev.criteria?.[i]) out.push(i);
+  return out;
+}
+export async function ensureCoverage(dir, { onUsage, onProgress, retries = 2 } = {}) {
+  const errors = {};
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    const todo = uncoveredCriteria(dir);
+    if (!todo.length) break;
+    for (const [k, n] of todo.entries()) {
+      onProgress?.({ n, done: k, total: todo.length, attempt });
+      try { await checkCriterion(dir, n, { onUsage }); delete errors[n]; }
+      catch (e) { errors[n] = String(e.message || e).slice(0, 160); }
+    }
+  }
+  const missing = uncoveredCriteria(dir);
+  return { missing, errors: Object.fromEntries(missing.map((n) => [n, errors[n] || 'not checked'])) };
+}
+
 export function readEval(dir) {
   try { return JSON.parse(fs.readFileSync(path.join(dir, 'eval.json'), 'utf8')); } catch { return null; }
 }

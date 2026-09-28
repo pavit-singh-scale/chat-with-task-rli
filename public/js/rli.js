@@ -1071,8 +1071,35 @@ export function createRli({ bucket, taskId, onCrit, onSpec, onOpenDoc, onCompare
     rubricKeys = onKeys;
     root.selectCrit = (n) => { if (wide()) { select(n); return true; } return false; };
 
+    // No missed rubric — failsafe for anything the eval left unmarked.
+    const coverage = el('div', { class: 'rub-cov' });
+    const paintCoverage = () => {
+      const missing = t.criteria.filter((c) => evalByCrit(ev, c.n).status === 'unchecked');
+      if (!ev) { coverage.replaceChildren(el('span', {}, 'No eval on this task yet — run evals through Claude Code (/rli-eval).')); coverage.className = 'rub-cov is-none'; return; }
+      if (!missing.length) { coverage.replaceChildren(); coverage.className = 'rub-cov'; coverage.hidden = true; return; }
+      coverage.hidden = false; coverage.className = 'rub-cov is-gap';
+      const btn = el('button', { type: 'button', class: 'btn btn--primary', onclick: async () => {
+        btn.disabled = true; msg.textContent = 'Checking… this runs in the background (about 10 s per criterion).';
+        try {
+          await api(`/task/${bucket}/${taskId}/eval/coverage`, { method: 'POST' });
+          const poll = setInterval(async () => {
+            const st = await api(`/task/${bucket}/${taskId}/docstatus`).catch(() => null);
+            if (st?.progress) msg.textContent = `Checking… ${st.progress}`;
+            if (!st || st.state === 'running' || st.state === 'pending') return;
+            clearInterval(poll);
+            ev = await loadEval(true);
+            render(); paintCoverage();
+          }, 3000);
+        } catch (e) { msg.textContent = e.message; btn.disabled = false; }
+      } }, `Check them now`);
+      const msg = el('span', {}, `${missing.length} criteria not checked by the eval yet: ${missing.slice(0, 12).map((c) => `C${c.n}`).join(', ')}${missing.length > 12 ? '…' : ''}`);
+      coverage.replaceChildren(el('b', {}, '⚠ Incomplete eval'), msg, btn);
+    };
+    paintCoverage();
+
     root.append(
       mix ? mixBar(mix, weights) : null,
+      coverage,
       el('div', { class: 'rub-tools' }, chips, el('span', { class: 'spacer' }), search, catSel, count),
       el('div', { class: 'rub-split' },
         el('div', { class: 'rub-table' }, headRow, body),

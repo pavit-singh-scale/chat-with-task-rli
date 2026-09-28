@@ -358,6 +358,14 @@ api.get('/task/:bucket/:id/files', wrap(async (req, res) => res.json(listFiles(r
 // RLI: the normalized record + deterministic spec checks for the task page.
 api.get('/task/:bucket/:id/rli', wrap(async (req, res) => res.json(readRliIn(taskDir(req.params.bucket, req.params.id)))));
 
+// RLI failsafe: check every criterion the eval hasn't marked yet (Rubric tab
+// banner). Any reviewer may run it, like the single-criterion check.
+api.post('/task/:bucket/:id/eval/coverage', wrap(async (req, res) => {
+  const dir = taskDir(req.params.bucket, req.params.id);
+  if (!isRliTask(dir)) throw httpError(400, 'not an RLI task');
+  res.json(enqueueDocs(req.params.bucket, req.params.id, ['coverage'], req.user.username));
+}));
+
 // RLI: check ONE criterion with the AI on demand (Rubric tab). Writes the
 // result into eval.json and re-renders the docs, so a fix it proposes lands in
 // the same fix ledger as the full eval's.
@@ -495,7 +503,7 @@ api.get('/admin/deliver/download', requireAdmin, wrap(async (req, res) => {
 // Doc generation runs as a background job (survives the client navigating away).
 api.post('/task/:bucket/:id/docgen/:which', requireAdmin, wrap(async (req, res) => {
   const { bucket, id, which } = req.params;
-  if (!['review', 'remediation'].includes(which)) return res.status(400).json({ error: 'which must be review|remediation' });
+  if (!['review', 'remediation', 'coverage'].includes(which)) return res.status(400).json({ error: 'which must be review|remediation|coverage' });
   res.json(enqueueDocs(bucket, id, [which], req.user.username));
 }));
 
@@ -527,7 +535,7 @@ api.get('/task/:bucket/:id/docstatus', wrap(async (req, res) => res.json(statusF
 // strip read this. Findings are the `### [HARD|SOFT|INFO] Fn` heading blocks.
 api.get('/task/:bucket/:id/doc/:which', wrap(async (req, res) => {
   const { bucket, id, which } = req.params;
-  if (!['review', 'remediation'].includes(which)) return res.status(400).json({ error: 'which must be review|remediation' });
+  if (!['review', 'remediation', 'coverage'].includes(which)) return res.status(400).json({ error: 'which must be review|remediation|coverage' });
   const f = readTaskFile(bucket, id, `${which}.md`); // 404s when not generated yet
   const findingCount = (String(f.text || '').match(/^###\s*\[(?:HARD|SOFT|INFO)\]\s*F\d+/gm) || []).length;
   res.json({ ...f, findingCount });

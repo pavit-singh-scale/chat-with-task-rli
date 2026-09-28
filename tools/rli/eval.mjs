@@ -24,7 +24,7 @@ import { execFileSync } from 'node:child_process';
 import { config, BUCKETS } from '../../src/config.js';
 import { readRliIn, readRecord, isRliTask } from '../../src/rli.js';
 import { deriveTask } from '../../src/rli_derive.js';
-import { generateRliDoc, checkCriterion, readEval, proposedBucket, CLAIM_COLUMNS, columnForDim } from '../../src/rli_docgen.js';
+import { generateRliDoc, ensureCoverage, uncoveredCriteria, readEval, proposedBucket, CLAIM_COLUMNS, columnForDim } from '../../src/rli_docgen.js';
 import { moveTask } from '../../src/workspace.js';
 import { recordUsage } from '../../src/usage.js';
 
@@ -122,21 +122,25 @@ async function runOne(t) {
   }
 
   if (CHECKS) {
-    const nCrit = readRecord(res.dir).rubric_eval?.criteria?.length || 0;
-    const ev = readEval(res.dir) || {};
-    const todo = [];
-    for (let n = 1; n <= nCrit; n++) if (!ev.criteria?.[n]) todo.push(n);
+    const todo = uncoveredCriteria(res.dir);
     if (todo.length) log(`  ${t.id} checking ${todo.length} uncovered criteria`);
-    for (const n of todo) {
-      const u = usageAcc();
-      try {
-        await checkCriterion(res.dir, n, { onUsage: u.onUsage });
-        res.checked++;
-      } catch (e) { res.checkErrors.push(`C${n}: ${String(e.message).slice(0, 120)}`); }
-      recordUsage({ user: USER, taskId: t.id, kind: 'eval:criterion', model: config.litellm.model, usage: u.acc, text: `Checked C${n} (batch)` });
+    const u = usageAcc();
+    const cov = await ensureCoverage(res.dir, { onUsage: u.onUsage });
+    recordUsage({ user: USER, taskId: t.id, kind: 'eval:criterion', model: config.litellm.model, usage: u.acc, text: `Coverage checks (batch)` });
+    res.checked = todo.length - cov.missing.length;
+    // No missed rubric: a task with unmarked criteria is INCOMPLETE, not done.
+    if (cov.missing.length) {
+      res.status = 'incomplete';
+      res.missing = cov.missing;
+      res.checkErrors = Object.entries(cov.errors).map(([n, e]) => `C${n}: ${e}`);
     }
   }
-  log(`✓ ${t.id} → ${res.bucket}`);
+  // Gaps surface even when checks were skipped — a partly marked rubric is never "done".
+  if (!CHECKS) {
+    const gaps = uncoveredCriteria(res.dir);
+    if (gaps.length) { res.status = 'incomplete'; res.missing = gaps; res.notes.push('checks were skipped (--no-checks)'); }
+  }
+  log(`${res.status === 'incomplete' ? '⚠' : '✓'} ${t.id} → ${res.bucket}${res.status === 'incomplete' ? ` · INCOMPLETE (${res.missing.length} unmarked)` : ''}`);
   return res;
 }
 
@@ -210,6 +214,7 @@ function claimRow(t, ev, after) {
 const rows = [];
 for (const r of results) {
   if (r.status === 'skipped' || r.status === 'error') { rows.push({ r }); continue; }
+  // incomplete tasks still get their report block — with the gap called out
   const t = readRliIn(r.dir);
   const ev = readEval(r.dir);
   const rec = readRecord(r.dir);
@@ -217,16 +222,18 @@ for (const r of results) {
   const claim = claimRow(t, ev, after);
   rows.push({ r, t, ev, after, claim });
 }
-const rank = (x) => (x.r.status !== 'done' ? 9 : { HARD_FAIL: 0, SOFT_FAIL: 1, PASS: 2 }[x.ev?.bucket] ?? 3);
+const rank = (x) => (x.r.status === 'incomplete' ? -1 : x.r.status !== 'done' ? 9 : { HARD_FAIL: 0, SOFT_FAIL: 1, PASS: 2 }[x.ev?.bucket] ?? 3);
 rows.sort((a, b) => rank(a) - rank(b));
 
 const BUCKET_WORD = { HARD_FAIL: 'Fail', SOFT_FAIL: 'Non-fail', PASS: 'No issues' };
 const md = [`# RLI eval — ${new Date().toISOString().slice(0, 16).replace('T', ' ')} UTC`, '',
+  ...(results.some((x) => x.status === 'incomplete') ? [`**${results.filter((x) => x.status === 'incomplete').length} task(s) INCOMPLETE — some criteria still unmarked; see below.**`, ''] : []),
   `${results.length} task(s): ${rows.filter((x) => x.ev?.bucket === 'HARD_FAIL').length} Fail · ${rows.filter((x) => x.ev?.bucket === 'SOFT_FAIL').length} Non-fail · ${rows.filter((x) => x.ev?.bucket === 'PASS').length} No issues · ${results.filter((x) => x.status === 'skipped').length} skipped · ${results.filter((x) => x.status === 'error').length} errored`,
   '', 'Findings and fixes are PROPOSED — nothing was applied. Open each task in the studio to adjudicate.', ''];
 for (const x of rows) {
   const { r } = x;
-  if (r.status !== 'done') { md.push(`## ${r.status.toUpperCase()} — ${r.id}`, '', ...r.notes.map((n) => `- ${n}`), ''); continue; }
+  if (r.status !== 'done' && r.status !== 'incomplete') { md.push(`## ${r.status.toUpperCase()} — ${r.id}`, '', ...r.notes.map((n) => `- ${n}`), ''); continue; }
+  if (r.status === 'incomplete') md.push(`> **INCOMPLETE — ${r.missing.length} criteria still unmarked (${r.missing.map((n) => `C${n}`).join(', ')}).** Re-run: \`node tools/rli/eval.mjs --tasks ${r.id}\``, '');
   const { t, ev, after, claim } = x;
   const crits = Object.keys(ev?.criteria || {}).length;
   const flagged = Object.values(ev?.criteria || {}).filter((c) => !c.ok).length;
@@ -258,7 +265,7 @@ const cols = Object.keys(CLAIM_COLUMNS);
 const csvEsc = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
 const csv = [['Task', 'Domain', 'Timeline', 'Eval', ...cols.flatMap((k) => [`${CLAIM_COLUMNS[k]} · Score`, `${CLAIM_COLUMNS[k]} · Note`])].map(csvEsc).join(',')];
 for (const x of rows) {
-  if (x.r.status !== 'done') { csv.push([x.r.id, '', '', x.r.status].map(csvEsc).join(',')); continue; }
+  if (x.r.status !== 'done' && x.r.status !== 'incomplete') { csv.push([x.r.id, '', '', x.r.status].map(csvEsc).join(',')); continue; }
   csv.push([x.r.id, x.t.domain, x.t.timeline, BUCKET_WORD[x.ev?.bucket] || '—', ...cols.flatMap((k) => [x.claim[k].score, x.claim[k].note])].map(csvEsc).join(','));
 }
 fs.writeFileSync(path.join(OUT, 'claim_sheet.csv'), csv.join('\n'));
@@ -269,3 +276,6 @@ fs.writeFileSync(path.join(OUT, 'summary.json'), JSON.stringify(rows.map((x) => 
 })), null, 1));
 log(`report: ${path.join(OUT, 'report.md')}`);
 log(`claim sheet: ${path.join(OUT, 'claim_sheet.csv')}`);
+
+// Exit non-zero when any task has unmarked criteria, so a caller can't miss it.
+if (results.some((x) => x.status === 'incomplete' || x.status === 'error')) process.exitCode = 2;

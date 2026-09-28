@@ -545,7 +545,11 @@ async function watchDoc(doc) {
     try { s = await api(`/task/${bucket}/${taskId}/docstatus`); } catch { return; }
     if (s.state === 'running' || s.state === 'pending') {
       // progress only updates in place — it must not chase the user across tabs
-      if (banner.isConnected) banner.textContent = s.current ? `Generating ${s.current}.md… (background — feel free to navigate away)` : 'Queued… (background)';
+      if (banner.isConnected) {
+        banner.textContent = s.current === 'coverage'
+          ? `Checking every criterion the eval didn't cover… ${s.progress || ''} (background — feel free to navigate away)`
+          : s.current ? `Generating ${s.current}.md… (background — feel free to navigate away)` : 'Queued… (background)';
+      }
       return;
     }
     clearInterval(docWatch); docWatch = null;
