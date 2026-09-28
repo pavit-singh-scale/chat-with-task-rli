@@ -129,13 +129,12 @@ export function createRli({ bucket, taskId, onCrit, onSpec, onOpenDoc, onCompare
         const tok = idx.tokens.get(m[1]);
         frag.append(tok?.file && !tok.problem
           ? el('button', { type: 'button', class: 'rli-fpill', title: `Open ${tok.file.rel}`, onclick: () => openViewer(t, tok.file, idx.inputs) }, m[1])
-          : el('span', { class: 'rli-fpill is-missing', title: tok?.problem || 'not in the inputs' }, m[1], el('em', {}, ' — missing')));
+          : el('span', { class: 'rli-fpill is-missing', title: `Doesn't resolve — ${tok?.problem || 'not in the inputs'}` }, m[1]));
         last = m.index + m[1].length;
       }
       frag.append(text.slice(last));
-      // A path in `code` becomes the pill itself rather than a pill inside a code chip.
-      const host = node.parentNode;
-      if (host.tagName === 'CODE' && host.childNodes.length === 1) host.replaceWith(frag); else node.replaceWith(frag);
+      // Only the text node is replaced — a path the author put in `code` stays code.
+      node.replaceWith(frag);
     }
   }
   function citedIn(t, idx) {
