@@ -25,6 +25,61 @@ const SIDE_KEY = { rd: 'golden', golden: 'golden', ad1: 'ad1', ad2: 'ad2' };
 const SIDE_LABEL = { golden: 'RD', ad1: 'AD1', ad2: 'AD2' };
 const FIELDS = ['passed', 'justification', 'weight', 'title'];
 
+// The claim-sheet audit columns (P00 924 Audit sheet) — every finding is filed
+// under one, so the report pre-fills the auditor's sheet.
+export const CLAIM_COLUMNS = {
+  brief: 'Brief issues',
+  files: 'File names',
+  weights: 'Criteria weight distribution',
+  quality: 'Quality rubric checks',
+  stump_ad1: 'AD1 stump < 70%',
+  stump_ad2: 'AD2 stump < 50%',
+  golden: 'Golden ≥ 97%',
+  count: '40–100 criteria',
+  rankings: 'Rankings make sense',
+  overfitting: 'Rubric overfitting',
+  atomicity: 'Atomicity / self-containment',
+  provenance: 'Generate original files',
+  grading: 'Verdict accuracy',
+};
+
+const SUBSTANCE = `
+SUBSTANCE ONLY — what this eval is for:
+- Report problems that change a verdict, a score, a gate, or whether a deliverable meets the brief.
+- Never report spelling, grammar, punctuation, capitalisation or wording polish — in criteria, in
+  justifications, in the brief or in the preference text — unless the wording changes the MEANING
+  (the criterion then grades the wrong thing) or makes it ungradeable. File names and paths are
+  not "wording": a brief path that doesn't match the delivered file is substantive.
+- Justifications: flag one only when it is WRONG for that side (describes content that deliverable
+  doesn't have, or the opposite of what's there), sits on the wrong criterion, or contradicts its
+  own verdict. An accurate justification that is generic or reused across sides is not a finding;
+  if reuse is widespread, one INFO roll-up at most — never a flag per criterion.
+
+The customer's error classes (PKJA customer feedback) — check each:
+1. Brief ambiguity: a request that reads two ways (e.g. "9 variations in a 3x3 grid" + "replicate the
+   sample in the grid" = 10?), or specs that contradict (2560x1440 "16:9" but a 9:16 vertical ask).
+   Any criterion that penalises a model for the other reading is unfair.
+2. Ground-truth quality: the brief or golden asserts something false (rupee amounts illustrated with
+   US bills, chroma-key spill, a golden that fails its own criterion). Criteria around it must still
+   reward/penalise correctly.
+3. Brief/input coherence: every input the brief names must match the delivered file exactly — name,
+   extension and root (input/...). Typos in roots (inpu/), wrong extensions (.wav vs .m4a), spaces
+   vs underscores, hard-coded golden_output/ prefixes.
+4. Evaluation fairness: validate every FAIL against the passes on the same criterion (Yes/No/No —
+   is the pass really better?), and every pass against what the artifact shows.
+5. Overfitting: a criterion written around one model's specific slip (a named mispronunciation, a
+   TTS artefact) rather than a professional standard.
+6. Misplaced justifications: text that belongs to a different criterion or a different side.
+7. Render provenance: 3D/CAD tasks whose deliverables are renders/exports must carry a Critically
+   Detrimental (-8 to -10) criterion penalising generation-from-scratch — even if every model passes.
+8. Coverage beyond the literal brief: what a commissioner would check (furnished interiors in an
+   exterior render, uncanny details), and whether the output achieves the brief's GOAL (an ad sells
+   to its audience, a podcast gets its point across, a poster gets people to attend).
+9. Weight distribution: 5% formatting / 30% brief compliance / 65% aesthetics + functionality +
+   usability/professionalism, measured on positive weight (spec gate >= 65%; the claim sheet
+   tolerates >= 55% on the quality bucket — report the number, cite the gate).
+`.trim();
+
 const EVIDENCE = `
 Evidence discipline (the whole value of this eval):
 - A verdict or justification that makes a VISUAL claim is only confirmed or overturned after you
@@ -36,7 +91,7 @@ Evidence discipline (the whole value of this eval):
 - For every criterion you verify, check TWO things per side: is the verdict right, and does the
   justification describe what is actually in the artifact? A correct verdict with a justification
   describing different or opposite content is an inaccurate justification (D12) — the customer has
-  explicitly flagged inverted, generic and copy-pasted justifications.
+  explicitly flagged inverted and misplaced justifications. (Generic-but-accurate is not a finding.)
 - Read every penalty verdict against its OWN justification: a justification that says the defect is
   absent beside passed:true (or describes it beside passed:false) is an inverted verdict — decidable
   from the text alone, so check all penalty criteria. Watch negation scope ("with none missing",
@@ -77,6 +132,7 @@ OUTPUT: ONLY one JSON object, no prose, no code fence. Shape:
       "headline": "<≤${CAPS.headline} words — the finding itself, e.g. 'Passed on paving that isn't in the render'>",
       "evidence": "<≤${CAPS.evidence} words, ≤2 sentences — what you SAW or measured, with citation links>",
       "owner": "contributor" | "QM" | "ops",
+      "column": "brief" | "files" | "weights" | "quality" | "stump_ad1" | "stump_ad2" | "golden" | "count" | "rankings" | "overfitting" | "atomicity" | "provenance" | "grading",
       "fix": null | {
         "summary": "<≤${CAPS.fixSummary} words, imperative — e.g. 'Flip to fail; describe the blank ground plane'>",
         "edits": [ { "crit": 31, "side": "ad2", "field": "passed", "old": "true", "new": "false" },
@@ -109,7 +165,11 @@ Rules for findings:
   strings). For the brief use {"field":"brief","old":…,"new":…} with crit/side null. crit is the
   C-number (1-based). side is required for passed/justification. A verdict flip usually needs a
   justification rewrite beside it. Anything else (a new criterion, re-scoring) goes in "manual".
+- column: the claim-sheet column the finding belongs to (grading = a verdict or justification
+  that's wrong; quality = redundancy/coverage/relevance/depth; see the list above for the rest).
 - Clean task: findings [], a one-line verdict, manual_checks for what you could not see.
+
+${SUBSTANCE}
 
 ${EVIDENCE}
 `.trim();
@@ -158,6 +218,9 @@ function resolveEdit(rec, e, n) {
   return { path: `/rubric_eval/criteria/${i}/${side}/justification`, old: String(e.old), new: String(e.new ?? '') };
 }
 
+export const columnForDim = (d) => ({ D17: 'grading', D12: 'grading', D13: 'grading', D20: 'provenance', D4: 'weights', D19: 'files', D15: 'brief',
+  D1: 'rankings', D2: 'rankings', D9: 'atomicity', D10: 'atomicity', D14: 'golden', D18: 'stump_ad1', D3: 'count' })[d] || 'quality';
+
 // Returns { ev, errors }. ev is normalized; errors are what the model must fix.
 export function validateEval(raw, dir) {
   const rec = readRecord(dir);
@@ -200,7 +263,8 @@ export function validateEval(raw, dir) {
       if (!edits.length && !fix.manual && !fix.summary) fix = null;
     }
     return { id, sev, dim, crit: crit >= 1 && crit <= nCrit ? crit : null, side, headline: String(f.headline || '').trim(), evidence: String(f.evidence || '').trim(),
-      owner: ['contributor', 'QM', 'ops'].includes(f.owner) ? f.owner : 'contributor', fix };
+      owner: ['contributor', 'QM', 'ops'].includes(f.owner) ? f.owner : 'contributor', fix,
+      column: CLAIM_COLUMNS[f.column] ? f.column : columnForDim(dim) };
   });
   const manual = (Array.isArray(raw.manual_checks) ? raw.manual_checks : []).map(String).slice(0, 6);
   manual.forEach((m, k) => cap(`manual_checks[${k}]`, m, CAPS.manualNote));
@@ -291,13 +355,18 @@ OUTPUT: ONLY one JSON object, no prose:
   "dim": "D17",                             // the deciding spec dimension, when ok=false
   "side": "rd" | "ad1" | "ad2" | null,      // the side that is wrong, if one
   "reason": "<≤${CAPS.headline} words — the problem, or what you confirmed when ok>",
+  "column": "grading" | "overfitting" | "files" | "provenance" | "quality" | "atomicity" | null,
   "explanation": "<≤${CAPS.evidence} words — what you saw or measured, with citation links>",
   "fix": null | { "summary": "<≤${CAPS.fixSummary} words>", "edits": [ { "crit": <n>, "side": "ad2", "field": "passed"|"justification"|"weight"|"title", "old": "...", "new": "..." } ], "manual": null | "<text>" }
 }
 Edits follow the same rules as the full eval: "old" is copied exactly from the record; a verdict
-flip usually needs a justification rewrite beside it. Be conservative: ok=true unless you can show
+flip usually needs a justification rewrite beside it. ok=true when the verdicts are right and each
+justification is accurate for its side — generic or reused wording alone is NOT a problem.
+Be conservative: ok=true unless you can show
 the problem. If you cannot see what the criterion needs (3D-only, motion, voice), say so in the
 reason and set ok=true with the explanation starting "Not verifiable here:".
+
+${SUBSTANCE}
 
 ${EVIDENCE}
 `.trim();
@@ -321,7 +390,7 @@ export async function checkCriterion(dir, n, { onEvent, onUsage } = {}) {
     ev.criteria[n] = { ok: true, note: String(raw.reason || '').trim(), explanation: String(raw.explanation || '').trim(), source: 'check', at: new Date().toISOString() };
   } else {
     // Validate as a one-finding eval so edits resolve against the live record.
-    const { ev: one, errors } = validateEval({ verdict: '', findings: [{ sev: raw.sev || 'SOFT', dim: raw.dim || 'D17', crit: n, side: raw.side || null, headline: raw.reason, evidence: raw.explanation, fix: raw.fix }] }, dir);
+    const { ev: one, errors } = validateEval({ verdict: '', findings: [{ sev: raw.sev || 'SOFT', dim: raw.dim || 'D17', crit: n, side: raw.side || null, headline: raw.reason, evidence: raw.explanation, fix: raw.fix, column: raw.column }] }, dir);
     const f = one.findings[0];
     const nextId = `F${Math.max(0, ...ev.findings.map((x) => Number(String(x.id).slice(1)) || 0)) + 1}`;
     f.id = nextId;
