@@ -24,7 +24,7 @@ import { execFileSync } from 'node:child_process';
 import { config, BUCKETS } from '../../src/config.js';
 import { readRliIn, readRecord, isRliTask } from '../../src/rli.js';
 import { deriveTask } from '../../src/rli_derive.js';
-import { generateRliDoc, ensureCoverage, uncoveredCriteria, readEval, proposedBucket, CLAIM_COLUMNS, columnForDim } from '../../src/rli_docgen.js';
+import { generateRliDoc, ensureCoverage, uncoveredCriteria, readEval, proposedBucket, renderReviewMd, renderRemediationMd, CLAIM_COLUMNS, columnForDim } from '../../src/rli_docgen.js';
 import { moveTask } from '../../src/workspace.js';
 import { ingestRecords } from '../../src/rli_ingest.js';
 import { buildPackage } from './package.mjs';
@@ -112,17 +112,25 @@ async function runOne(t) {
   if (needFull) {
     log(`▶ ${t.id} full eval`);
     const u = usageAcc();
-    await generateRliDoc(t.dir, 'review', { id: t.id, onUsage: u.onUsage });
+    // generateRliDoc returns review.md and writes only its sibling — write it here.
+    const review = await generateRliDoc(t.dir, 'review', { id: t.id, onUsage: u.onUsage });
+    fs.writeFileSync(path.join(t.dir, 'review.md'), review);
     recordUsage({ user: USER, taskId: t.id, kind: 'docgen:review', model: config.litellm.model, usage: u.acc, text: 'Generated review.md (batch)' });
-    // File the task under the eval's call, as the studio job does — unless a reviewer decided it.
+  } else {
+    res.notes.push('full eval already present — kept');
+    // A kept eval still needs its docs (they're rendered from eval.json, so this is free).
+    const ev = readEval(t.dir);
+    fs.writeFileSync(path.join(t.dir, 'review.md'), renderReviewMd(ev));
+    fs.writeFileSync(path.join(t.dir, 'remediation.md'), renderRemediationMd(ev));
+  }
+  // File the task under the eval's call, as the studio job does — unless a reviewer decided it.
+  {
     const target = proposedBucket(fs.readFileSync(path.join(t.dir, 'review.md'), 'utf8'));
     const decided = !!(readJson(path.join(t.dir, '_studio.json')) || {}).verdict;
     if (target && target !== t.bucket && !decided) {
       moveTask(t.bucket, t.id, target);
       res.bucket = target; res.dir = path.join(config.workspaceRoot, target, t.id);
     }
-  } else {
-    res.notes.push('full eval already present — kept');
   }
 
   if (CHECKS) {
