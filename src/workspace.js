@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { config, BUCKETS } from './config.js';
-import { fixSummary } from './fixes.js';
+import { fixSummary, readLedger } from './fixes.js';
 import { isRliTask, readRliIn, checkRollup } from './rli.js';
 
 const TASK_ID_RE = /^[a-f0-9]{24}$/;
@@ -190,7 +190,13 @@ export function taskMeta(bucket, id) {
   // out. The stored override key keeps its legacy name ('grammar_lane') so no
   // _studio.json migration is needed; grammar-only membership remains as a
   // fallback for pre-handoff batches with no fix files at all.
-  const stagingAuto = meta.ledgerCount > 0 || meta.pendingFixes > 0 || g.grammarOnly;
+  // RLI: the eval's PROPOSED fixes are review work, not sign-off work — a fresh
+  // task starts Open. It reaches Staging once a reviewer has approved a fix
+  // (a live human decision in the ledger), i.e. it's ready to go back upstream.
+  // Superseded entries (a reopened task's old decisions) don't count.
+  const stagingAuto = meta.kind === 'rli'
+    ? readLedger(dir).some((e) => e.decision === 'approved' && e.decided_by && e.decided_by !== 'acc-eval' && !e.superseded_at && !e.reverted_at)
+    : meta.ledgerCount > 0 || meta.pendingFixes > 0 || g.grammarOnly;
   meta.inStagingLane = meta.grammarLane === 'in' || (stagingAuto && meta.grammarLane !== 'out');
   return meta;
 }
