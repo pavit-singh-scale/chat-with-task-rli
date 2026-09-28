@@ -436,7 +436,9 @@ export function createRli({ bucket, taskId, onCrit, onSpec, onOpenDoc, onCompare
   async function buildDeliverables() {
     const t = await load();
     const view = artifactView(t);
-    const root = el('div', { class: 'rli rli-deliv' }, view);
+    const root = el('div', { class: 'rli rli-deliv' },
+      t.fetching ? el('div', { class: 'callout warn' }, 'Artifacts are still downloading from the delivery links — reload in a minute.') : null,
+      view);
     root.selectSlot = (id) => view.selectSlot?.(id);
     return root;
   }

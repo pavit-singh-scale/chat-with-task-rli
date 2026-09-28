@@ -139,6 +139,7 @@ export function readRliIn(dir) {
       return [s.key, { passed, good, justification: String(v.justification || '') }];
     })),
   }));
+  const fetching = fs.existsSync(path.join(dir, 'files', '.fetching'));
   const files = {
     input: listSide(dir, 'input'),
     golden: listSide(dir, 'golden'),
@@ -160,6 +161,7 @@ export function readRliIn(dir) {
     criteria,
     pref: rec.pref_ranking || null,
     files,
+    fetching, // an uploaded task whose artifacts are still downloading
     missing: [
       !rec.brief && 'brief',
       !rec.golden_deliverables && 'golden deliverables',

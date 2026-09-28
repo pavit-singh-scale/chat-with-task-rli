@@ -10,6 +10,8 @@ import { config } from './config.js';
 import { assertBucket, ensureWorkspace, findTaskBucket, httpError } from './workspace.js';
 import { writeAuditSeed, ensureRankingProof } from './ingest.js';
 
+import { ingestRecord, fetchArtifacts, existingDir } from './rli_ingest.js';
+import { deriveTask } from './rli_derive.js';
 const execFileP = promisify(execFile);
 const TASK_ID_RE = /^[a-f0-9]{24}$/;
 
@@ -81,6 +83,12 @@ async function finalizeUpload(tmp, fields) {
     }
     fs.unlinkSync(zipPath);
   }
+
+  // RLI package (<task_id>/task.json folders + _audit/final_verdicts.json, from
+  // tools/rli/package.mjs): the eval travels with the record; artifacts come
+  // from the record's own links (or stay, if this board already has them).
+  const rliRoots = findRliRoots(tmp);
+  if (rliRoots.length) return ingestRliPackage(rliRoots);
 
   // Delivery upload (multiple <task_id>/rank.json folders) → bulk-sort.
   // Single-task upload → land in the requested bucket.
@@ -246,6 +254,26 @@ function reopenIfStale(studioJson) {
 // carries tags, grammar_only_fail, writing_band_as_delivered and the fix
 // counts, and all of §2.1 depends on keeping them (older batches ship
 // {task_id, verdict} rows and flow through the same shape).
+// Background artifact downloads for uploaded RLI tasks — one at a time, so a
+// 30-task delivery doesn't open 120 parallel S3 transfers.
+let fetchChain = Promise.resolve();
+function queueArtifactFetch(dir, rec) {
+  const id = path.basename(dir);
+  const marker = path.join(dir, 'files', '.fetching');
+  fs.mkdirSync(path.dirname(marker), { recursive: true });
+  fs.writeFileSync(marker, new Date().toISOString());
+  fetchChain = fetchChain.then(async () => {
+    // The task may have moved buckets while queued.
+    const live = existingDir(id);
+    if (!live) return;
+    try {
+      fetchArtifacts(live, rec, (m) => console.log(`[rli fetch ${id}] ${m}`));
+      deriveTask(live);
+    } catch (e) { console.warn(`[rli fetch ${id}] ${e.message}`); }
+    fs.rmSync(path.join(live, 'files', '.fetching'), { force: true });
+  });
+}
+
 function loadVerdicts(deliveryDir) {
   try {
     const rows = JSON.parse(fs.readFileSync(path.join(deliveryDir, '_audit', 'final_verdicts.json'), 'utf8'));
@@ -266,6 +294,64 @@ function countBy(items, fn) {
   const out = {};
   for (const it of items) out[fn(it)] = (out[fn(it)] || 0) + 1;
   return out;
+}
+
+// ---------------------------------------------------------------- RLI packages
+
+function findRliRoots(root) {
+  const out = [];
+  const walk = (dir) => {
+    if (fs.existsSync(path.join(dir, 'task.json')) && !fs.existsSync(path.join(dir, 'rank.json')) && TASK_ID_RE.test(path.basename(dir))) { out.push(dir); return; }
+    for (const name of fs.readdirSync(dir)) {
+      const p = path.join(dir, name);
+      if (fs.statSync(p).isDirectory() && name !== '_audit' && !name.startsWith('.')) walk(p);
+    }
+  };
+  walk(root);
+  return out;
+}
+
+function ingestRliPackage(roots) {
+  const results = [];
+  for (const root of roots) {
+    const id = path.basename(root);
+    let rec;
+    try { rec = JSON.parse(fs.readFileSync(path.join(root, 'task.json'), 'utf8')); } catch (e) { results.push({ id, action: 'error', error: `task.json: ${e.message}` }); continue; }
+    // The eval files are the eval OF this record — ship them together.
+    const extras = Object.fromEntries(['eval.json', 'review.md', 'remediation.md'].filter((f) => fs.existsSync(path.join(root, f))).map((f) => [f, path.join(root, f)]));
+    const verdicts = loadVerdicts(path.dirname(root));
+    // Artifacts download in the background so a big delivery doesn't hold the request open.
+    const r = ingestRecord(rec, { noFiles: true, extras });
+    if (r.action === 'error') { results.push(r); continue; }
+    let dir = r.dir, bucket = r.bucket;
+    // File under the eval's call (final_verdicts.json) unless a reviewer decided it.
+    const row = verdicts?.get(id);
+    const target = row ? bucketFor(row) : null;
+    let decided = false;
+    try { decided = !!JSON.parse(fs.readFileSync(path.join(dir, '_studio.json'), 'utf8')).verdict; } catch { /* no state */ }
+    if (target && target !== 'UNSORTED' && target !== bucket && !decided) {
+      const to = path.join(config.workspaceRoot, target, id);
+      fs.renameSync(dir, to); dir = to; bucket = target;
+    }
+    loadFixBlocks(dir); // parse the remediation's fix blocks once, like an ACC upload
+    const hasFiles = fs.existsSync(path.join(dir, 'files')) && fs.readdirSync(path.join(dir, 'files')).some((n) => !n.startsWith('_'));
+    if (!hasFiles) queueArtifactFetch(dir, rec);
+    results.push({ taskId: id, bucket, action: r.action, fetching: !hasFiles });
+  }
+  const ok = results.filter((r) => r.taskId);
+  return {
+    kind: 'rli',
+    taskId: ok[0]?.taskId || null,
+    bucket: ok[0]?.bucket || null,
+    ingested: ok.filter((r) => r.action === 'added'),
+    replaced: ok.filter((r) => r.action !== 'added'),
+    reopened: ok.filter((r) => r.action === 'reopened').map((r) => r.taskId),
+    unchanged: ok.filter((r) => r.action === 'unchanged').map((r) => r.taskId),
+    fetching: ok.filter((r) => r.fetching).map((r) => r.taskId),
+    counts: countBy(ok, (t) => t.bucket),
+    errors: results.filter((r) => r.action === 'error'),
+    warnings: [],
+  };
 }
 
 // Every directory that contains a rank.json (depth-first, no descent past a hit).

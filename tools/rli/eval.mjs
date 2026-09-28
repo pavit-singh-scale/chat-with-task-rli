@@ -26,6 +26,8 @@ import { readRliIn, readRecord, isRliTask } from '../../src/rli.js';
 import { deriveTask } from '../../src/rli_derive.js';
 import { generateRliDoc, ensureCoverage, uncoveredCriteria, readEval, proposedBucket, CLAIM_COLUMNS, columnForDim } from '../../src/rli_docgen.js';
 import { moveTask } from '../../src/workspace.js';
+import { ingestRecords } from '../../src/rli_ingest.js';
+import { buildPackage } from './package.mjs';
 import { recordUsage } from '../../src/usage.js';
 
 const argv = process.argv.slice(2);
@@ -67,18 +69,20 @@ function reviewerWork(dir) {
   const why = [];
   if (st.verdict) why.push(`decision ${st.verdict}`);
   if (st.checklist && Object.keys(st.checklist).length) why.push(`${Object.keys(st.checklist).length} checklist marks`);
-  const decided = (Array.isArray(ledger) ? ledger : []).filter((e) => e.decided_by && e.decided_by !== 'acc-eval').length;
+  // Superseded entries (a reopened task's old decisions) no longer bind anything.
+  const decided = (Array.isArray(ledger) ? ledger : []).filter((e) => e.decided_by && e.decided_by !== 'acc-eval' && !e.superseded_at).length;
   if (decided) why.push(`${decided} decided fixes`);
   return why;
 }
 
 let targets = [];
 const preview = opt('--preview');
+let ingestLog = [];
 if (preview) {
   log(`ingesting ${preview}`);
-  execFileSync(process.execPath, [path.join(config.projectRoot, 'tools/rli/ingest.mjs'), preview], { stdio: 'inherit' });
-  const ids = JSON.parse(fs.readFileSync(preview, 'utf8')).map((r) => r.task_id).filter(Boolean);
-  targets = ids.map(findDir).filter(Boolean);
+  ingestLog = ingestRecords(JSON.parse(fs.readFileSync(preview, 'utf8')), { log: (m) => log(m) });
+  // Every task in the delivery is in scope; unchanged ones with a full eval are kept as they are.
+  targets = ingestLog.filter((r) => r.action !== 'error').map((r) => findDir(r.id)).filter(Boolean);
 }
 const idArg = opt('--tasks');
 if (idArg) targets.push(...idArg.split(/[\s,]+/).filter(Boolean).map((id) => findDir(id) || (log(`✕ ${id}: not on the board`), null)).filter(Boolean));
@@ -276,6 +280,18 @@ fs.writeFileSync(path.join(OUT, 'summary.json'), JSON.stringify(rows.map((x) => 
 })), null, 1));
 log(`report: ${path.join(OUT, 'report.md')}`);
 log(`claim sheet: ${path.join(OUT, 'claim_sheet.csv')}`);
+
+// The upload package (ACC-style): every fully evaluated task of this run, zipped
+// with final_verdicts + the report. --no-package to skip.
+if (!flag('--no-package')) {
+  const done = results.filter((x) => x.status === 'done').map((x) => x.id);
+  if (done.length) {
+    const label = opt('--name') || `RLI_UPLOAD_${preview ? path.basename(preview).replace(/^delivery_sender_preview_[0-9a-f]+_/, '').replace(/\.json$/, '').slice(0, 60) : stamp}`;
+    const pk = buildPackage({ ids: done, reportDir: OUT, name: label, outDir: OUT, log });
+    fs.copyFileSync(pk.zip, path.join(process.env.HOME, 'Downloads', path.basename(pk.zip)));
+    log(`upload package: ~/Downloads/${path.basename(pk.zip)}`);
+  }
+}
 
 // Exit non-zero when any task has unmarked criteria, so a caller can't miss it.
 if (results.some((x) => x.status === 'incomplete' || x.status === 'error')) process.exitCode = 2;
