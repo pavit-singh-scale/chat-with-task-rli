@@ -585,10 +585,20 @@ export function createRli({ bucket, taskId, onCrit, onSpec, onOpenDoc, onCompare
 
   // three.js loaded on demand from esm.sh (rewrites bare 'three' imports, so no import map needed).
   let three = null;
+  // Autodesk viewer's background: light grey at the top easing to mid grey.
+  function greyGradient(T) {
+    const c = document.createElement('canvas'); c.width = 2; c.height = 256;
+    const g = c.getContext('2d'); const grd = g.createLinearGradient(0, 0, 0, 256);
+    grd.addColorStop(0, '#e6e7e9'); grd.addColorStop(0.55, '#c3c5c9'); grd.addColorStop(1, '#8e9196');
+    g.fillStyle = grd; g.fillRect(0, 0, 2, 256);
+    const tex = new T.CanvasTexture(c); tex.colorSpace = T.SRGBColorSpace;
+    return tex;
+  }
+
   async function loadThree() {
     if (three) return three;
     const v = '0.160.0';
-    const [T, orbit, obj, fbx, gltf, stl, ply, tds, dae] = await Promise.all([
+    const [T, orbit, obj, fbx, gltf, stl, ply, tds, dae, room] = await Promise.all([
       import(`https://esm.sh/three@${v}`),
       import(`https://esm.sh/three@${v}/examples/jsm/controls/OrbitControls.js`),
       import(`https://esm.sh/three@${v}/examples/jsm/loaders/OBJLoader.js`),
@@ -598,8 +608,9 @@ export function createRli({ bucket, taskId, onCrit, onSpec, onOpenDoc, onCompare
       import(`https://esm.sh/three@${v}/examples/jsm/loaders/PLYLoader.js`),
       import(`https://esm.sh/three@${v}/examples/jsm/loaders/TDSLoader.js`),
       import(`https://esm.sh/three@${v}/examples/jsm/loaders/ColladaLoader.js`),
+      import(`https://esm.sh/three@${v}/examples/jsm/environments/RoomEnvironment.js`),
     ]);
-    three = { T, OrbitControls: orbit.OrbitControls, OBJLoader: obj.OBJLoader, FBXLoader: fbx.FBXLoader, GLTFLoader: gltf.GLTFLoader, STLLoader: stl.STLLoader, PLYLoader: ply.PLYLoader, TDSLoader: tds.TDSLoader, ColladaLoader: dae.ColladaLoader };
+    three = { T, OrbitControls: orbit.OrbitControls, OBJLoader: obj.OBJLoader, FBXLoader: fbx.FBXLoader, GLTFLoader: gltf.GLTFLoader, STLLoader: stl.STLLoader, PLYLoader: ply.PLYLoader, TDSLoader: tds.TDSLoader, ColladaLoader: dae.ColladaLoader, RoomEnvironment: room.RoomEnvironment };
     return three;
   }
 
@@ -615,18 +626,32 @@ export function createRli({ bucket, taskId, onCrit, onSpec, onOpenDoc, onCompare
     host.append(status, bar, hint);
     (async () => {
       try {
-        const { T, OrbitControls, OBJLoader, FBXLoader, GLTFLoader, STLLoader, PLYLoader, TDSLoader, ColladaLoader } = await loadThree();
+        const { T, OrbitControls, OBJLoader, FBXLoader, GLTFLoader, STLLoader, PLYLoader, TDSLoader, ColladaLoader, RoomEnvironment } = await loadThree();
         const w = host.clientWidth || 800, h = host.clientHeight || 520;
         const renderer = new T.WebGLRenderer({ antialias: true, logarithmicDepthBuffer: true });
         renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
         renderer.setSize(w, h);
+        // Autodesk-viewer look: filmic tone mapping, studio environment light,
+        // a fixed sun with soft shadows, and their neutral grey gradient.
+        renderer.toneMapping = T.ACESFilmicToneMapping;
+        renderer.toneMappingExposure = 0.82;
+        renderer.shadowMap.enabled = true;
+        renderer.shadowMap.type = T.PCFSoftShadowMap;
         host.prepend(renderer.domElement);
         const light = document.documentElement.dataset.theme === 'light';
         const scene = new T.Scene();
-        scene.background = new T.Color(light ? 0xf1f1f3 : 0x16171b);
+        scene.background = greyGradient(T);
+        const pmrem = new T.PMREMGenerator(renderer);
+        scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+        scene.environmentIntensity = 0.85; // three r163+; harmless before
         const camera = new T.PerspectiveCamera(40, w / h, 0.01, 1e7);
-        scene.add(new T.HemisphereLight(0xffffff, 0x3a3a44, 1.15));
-        const key = new T.DirectionalLight(0xffffff, 1.1); scene.add(key);
+        scene.add(new T.HemisphereLight(0xffffff, 0x8a8d94, 0.35));
+        const key = new T.DirectionalLight(0xffffff, 1.6);
+        key.castShadow = true;
+        key.shadow.mapSize.set(compact ? 1024 : 2048, compact ? 1024 : 2048);
+        key.shadow.bias = -0.0004;
+        key.shadow.normalBias = 0.02;
+        scene.add(key, key.target);
         const controls = new OrbitControls(camera, renderer.domElement);
         // Zoom is ours, not OrbitControls': its wheel handler moves one fixed step
         // per event, which lurches on a trackpad (dozens of tiny events per swipe)
@@ -657,6 +682,23 @@ export function createRli({ bucket, taskId, onCrit, onSpec, onOpenDoc, onCompare
           meshes++; meshList.push(o);
           const g = o.geometry;
           tris += g.index ? g.index.count / 3 : (g.attributes.position?.count || 0) / 3;
+          o.castShadow = true; o.receiveShadow = true;
+          // 3DS/OBJ/FBX/DAE load as Phong/Lambert, which ignore environment light —
+          // swap to physically based materials with the same colour, map and alpha.
+          const toPbr = (m) => {
+            if (!m || m.isMeshStandardMaterial || m.isShaderMaterial) return m;
+            const shin = m.shininess ?? 30;
+            const pbr = new T.MeshStandardMaterial({
+              name: m.name, color: m.color ? m.color.clone() : new T.Color(0xcccccc), map: m.map || null,
+              normalMap: m.normalMap || null, emissive: m.emissive ? m.emissive.clone() : new T.Color(0),
+              emissiveMap: m.emissiveMap || null, alphaMap: m.alphaMap || null,
+              transparent: !!m.transparent, opacity: m.opacity ?? 1, side: m.side ?? T.FrontSide,
+              vertexColors: !!m.vertexColors, roughness: Math.max(0.15, Math.min(0.95, 1 - Math.sqrt(Math.min(shin, 100) / 100))), metalness: 0.02,
+            });
+            if (pbr.map) pbr.map.colorSpace = T.SRGBColorSpace;
+            return pbr;
+          };
+          o.material = Array.isArray(o.material) ? o.material.map(toPbr) : toPbr(o.material);
           o.userData.orig = o.material;
         });
         const hasMats = meshList.some((m) => [].concat(m.userData.orig || []).some((x) => x && (x.map || (x.color && x.color.getHex() !== 0xffffff))));
@@ -699,6 +741,18 @@ export function createRli({ bucket, taskId, onCrit, onSpec, onOpenDoc, onCompare
         grid.position.set(center.x, lo.y, center.z);
         grid.visible = false;
         scene.add(grid);
+        // Fixed sun (upper right, behind the default camera side) + an invisible
+        // ground that only shows the model's soft shadow — the Autodesk look.
+        key.position.set(center.x + radius * 1.6, center.y + radius * 3, center.z + radius * 1.1);
+        key.target.position.copy(center);
+        const sc = key.shadow.camera;
+        Object.assign(sc, { left: -radius * 1.6, right: radius * 1.6, top: radius * 1.6, bottom: -radius * 1.6, near: radius * 0.1, far: radius * 8 });
+        sc.updateProjectionMatrix();
+        const catcher = new T.Mesh(new T.PlaneGeometry(radius * 12, radius * 12), new T.ShadowMaterial({ opacity: 0.32 }));
+        catcher.rotation.x = -Math.PI / 2;
+        catcher.position.set(center.x, lo.y - radius * 0.002, center.z);
+        catcher.receiveShadow = true;
+        scene.add(catcher);
 
         const DIRS = {
           fit: [1.1, 0.75, 1.35], front: [0, 0, 1], back: [0, 0, -1], left: [-1, 0, 0], right: [1, 0, 0], top: [0, 1, 0.0001], iso: [1, 1, 1],
@@ -815,7 +869,6 @@ export function createRli({ bucket, taskId, onCrit, onSpec, onOpenDoc, onCompare
             controls.target.lerpVectors(anim.fromT, anim.toT, k);
             if (anim.t >= 1) anim = null;
           }
-          key.position.copy(camera.position).add(new T.Vector3(radius, radius * 2, radius));
           controls.update();
           renderer.render(scene, camera);
           requestAnimationFrame(tick);
