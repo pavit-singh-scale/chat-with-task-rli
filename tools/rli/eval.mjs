@@ -294,7 +294,7 @@ log(`claim sheet: ${path.join(OUT, 'claim_sheet.csv')}`);
 if (!flag('--no-package')) {
   const done = results.filter((x) => x.status === 'done').map((x) => x.id);
   if (done.length) {
-    const label = opt('--name') || `RLI_UPLOAD_${preview ? path.basename(preview).replace(/^delivery_sender_preview_[0-9a-f]+_/, '').replace(/\.json$/, '').slice(0, 60) : stamp}`;
+    const label = opt('--name') || `RLI_UPLOAD_${preview ? path.basename(preview).replace(/^delivery_sender_preview_[0-9a-f]+_/, '').replace(/_(PDT|PST|UTC)_.*$/, '').replace(/\.json$/, '') : stamp}`;
     const pk = buildPackage({ ids: done, reportDir: OUT, name: label, outDir: OUT, log });
     fs.copyFileSync(pk.zip, path.join(process.env.HOME, 'Downloads', path.basename(pk.zip)));
     log(`upload package: ~/Downloads/${path.basename(pk.zip)}`);
