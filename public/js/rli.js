@@ -146,7 +146,8 @@ export function createRli({ bucket, taskId, onCrit, onSpec, onOpenDoc, onCompare
         const hit = body.includes(f.name.toLowerCase()) || body.includes(f.rel.toLowerCase())
           || idx.paths.ranges.some((r) => body.includes(`${r.root}${r.stem}`.toLowerCase()) && new RegExp(`^${escRe(r.stem)}(\\d+)${escRe(r.ext)}$`, 'i').test(f.name)
             && (() => { const n = Number(f.name.match(/(\d+)\.\w+$/)?.[1]); return n >= r.from && n <= r.to; })());
-        if (hit && !cites.get(f.path).includes(sec.heading)) cites.get(f.path).push(sec.heading);
+        const name = sec.heading || 'the brief';
+        if (hit && !cites.get(f.path).includes(name)) cites.get(f.path).push(name);
       }
     }
     return cites;
@@ -166,9 +167,15 @@ export function createRli({ bucket, taskId, onCrit, onSpec, onOpenDoc, onCompare
     const sections = t.briefSections.length
       ? t.briefSections.map((s) => {
         const body = el('div', { class: 'cb-prose' });
-        body.innerHTML = renderMarkdown(s.body || '_(empty)_');
+        // Briefs are written with single line breaks meaning "new line" (the
+        // platform shows them that way); markdown would fold them into one
+        // paragraph, so keep each as a hard break. Lists and blank lines are untouched.
+        const keepBreaks = String(s.body || '').replace(/([^\n])\n(?!\n|\s*(?:[-*+]|\d+[.)])\s)/g, '$1  \n');
+        body.innerHTML = renderMarkdown(keepBreaks || '_(empty)_');
         pillify(body, idx, t);
-        return el('section', { class: 'rli-brief__sec' }, el('h4', {}, s.heading), body);
+        // The heading as written — same words, same casing, same level.
+        const lvl = Math.min(Math.max(s.level || 2, 2), 4);
+        return el('section', { class: `rli-brief__sec is-h${s.level || 0}` }, s.heading ? el(`h${lvl + 1}`, { class: 'rli-brief__h' }, s.heading) : null, body);
       })
       : [el('div', { class: 'callout warn' }, 'This record has no brief.')];
     const inputs = idx.inputs;

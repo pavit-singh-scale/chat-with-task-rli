@@ -4311,3 +4311,11 @@ body:has(.acey-fab:not([hidden])) main { padding-bottom: 96px; }
 .rub-flag i { font-style: normal; }
 .rpane-eval.is-issue { border-color: color-mix(in srgb, var(--warn) 55%, transparent); background: var(--warn-tint, var(--bg-sunken)); }
 .rpane-status.is-issue b { color: var(--warn); }
+
+/* Brief headings as written: no forced uppercase, and nesting visible. */
+.rli-brief__sec .rli-brief__h { margin: 0 0 6px; font-weight: 700; color: var(--text); text-transform: none; letter-spacing: 0; line-height: 1.35; }
+.rli-brief__sec.is-h1 .rli-brief__h, .rli-brief__sec.is-h2 .rli-brief__h { font-size: 19px; }
+.rli-brief__sec.is-h3 .rli-brief__h { font-size: 16px; color: var(--text-2); }
+.rli-brief__sec.is-h4 .rli-brief__h { font-size: 15px; color: var(--text-3); }
+.rli-brief__sec.is-h3 { padding-left: 16px; border-left: 2px solid var(--border); }
+.rli-brief__sec.is-h4 { padding-left: 32px; border-left: 2px solid var(--border); }

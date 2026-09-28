@@ -98,20 +98,25 @@ export function briefTitle(brief) {
   return first.length > 200 ? `${first.slice(0, 197)}…` : first;
 }
 
-// Split the brief into its four canonical sections (tolerant of "##Heading"
-// with no space and of heading-name variants).
+// Split the brief at its markdown headings, keeping each heading exactly as
+// written (text and level) so the Brief tab shows the author's structure.
+// Tolerant of "##Heading" with no space. Nothing is dropped: text before the
+// first heading becomes an untitled leading section.
 export function briefSections(brief) {
   const text = String(brief || '');
   const parts = [];
-  const re = /^#{1,4}\s*([^\n#][^\n]*)$/gm;
+  const re = /^(#{1,4})\s*([^\n#][^\n]*)$/gm;
   let m, last = null;
+  const first = text.search(/^#{1,4}\s*[^\n#]/m);
+  const preamble = (first < 0 ? '' : text.slice(0, first)).trim();
+  if (preamble) parts.push({ heading: '', level: 0, body: preamble });
   while ((m = re.exec(text))) {
     if (last) parts.push({ ...last, body: text.slice(last.end, m.index).trim() });
-    last = { heading: m[1].trim(), end: re.lastIndex };
+    last = { heading: m[2].trim(), level: m[1].length, end: re.lastIndex };
   }
   if (last) parts.push({ ...last, body: text.slice(last.end).trim() });
-  if (!parts.length && text.trim()) parts.push({ heading: 'Brief', body: text.trim() });
-  return parts.map(({ heading, body }) => ({ heading, body }));
+  if (!parts.length && text.trim()) parts.push({ heading: '', level: 0, body: text.trim() });
+  return parts.map(({ heading, level, body }) => ({ heading, level, body }));
 }
 
 export function readRliIn(dir) {
